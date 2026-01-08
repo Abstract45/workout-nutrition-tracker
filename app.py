@@ -136,46 +136,53 @@ elif page == "Log Day":
     
     notes = st.text_area("Day Notes", value=current_notes)
     
-    # Exercises sub-table with per-exercise status
-    st.subheader("Exercises for this Day (Log Per Exercise)")
-    df_ex = pd.read_sql_query("SELECT exercise_name, planned_sets, planned_reps, planned_weight, done_sets, done_reps, done_weight, notes, status FROM exercise_logs WHERE date=?", conn, params=(date_str,))
-    if not df_ex.empty:
-        edited_ex = st.data_editor(
-            df_ex,
-            column_config={
-                "exercise_name": "Exercise",
-                "planned_sets": "Planned Sets",
-                "planned_reps": "Planned Reps",
-                "planned_weight": "Planned Weight",
-                "done_sets": "Done Sets",
-                "done_reps": "Done Reps",
-                "done_weight": "Done Weight",
-                "notes": "Exercise Notes",
-                "status": st.column_config.SelectboxColumn("Status", options=["pending", "completed"]),
-            },
-            use_container_width=True,
-            hide_index=False
-        )
-        
-        # Derive day status: completed if all exercises completed
-        all_completed = all(s == "completed" for s in edited_ex['status'])
-        day_status = "completed" if all_completed else "pending"
-    else:
-        edited_ex = pd.DataFrame()
-        day_status = "pending"
-        st.info("No exercises scheduled for this day.")
+    # Fetch exercises
+    df_ex = pd.read_sql_query("SELECT * FROM exercise_logs WHERE date=?", conn, params=(date_str,))
     
-    if st.button("Save"):
-        # Save day (update status based on exercises)
-        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, day_status, notes))
+    st.subheader("Exercises for this Day")
+    if not df_ex.empty:
+        # List each exercise vertically with planned and inputs for done
+        exercise_data = {}
+        for _, ex_row in df_ex.iterrows():
+            ex_name = ex_row['exercise_name']
+            st.markdown(f"**{ex_name}** - Recommended: {ex_row['planned_sets']} sets of {ex_row['planned_reps']} reps at {ex_row['planned_weight']} lbs")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                done_sets = st.text_input(f"Sets ({ex_name})", value=ex_row['done_sets'] or ex_row['planned_sets'])
+            with col2:
+                done_reps = st.text_input(f"Reps ({ex_name})", value=ex_row['done_reps'] or ex_row['planned_reps'])
+            with col3:
+                done_weight = st.text_input(f"Weight ({ex_name})", value=ex_row['done_weight'] or ex_row['planned_weight'])
+            with col4:
+                status = st.selectbox(f"Status ({ex_name})", ["pending", "completed"], index=0 if ex_row['status'] == "pending" else 1)
+            
+            ex_notes = st.text_area(f"Notes ({ex_name})", value=ex_row['notes'] or "", height=50)
+            
+            exercise_data[ex_name] = {
+                'done_sets': done_sets,
+                'done_reps': done_reps,
+                'done_weight': done_weight,
+                'notes': ex_notes,
+                'status': status
+            }
         
-        # Save exercises
-        for idx, row in edited_ex.iterrows():
-            c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?, status=?
-                         WHERE date=? AND exercise_name=?""",
-                      (row['done_sets'], row['done_reps'], row['done_weight'], row['notes'], row['status'], date_str, row['exercise_name']))
-        conn.commit()
-        st.success("Exercises logged individually! Day status updated based on all exercises being completed.")
+        if st.button("Save All Exercises"):
+            all_completed = True
+            for ex_name, data in exercise_data.items():
+                c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?, status=?
+                             WHERE date=? AND exercise_name=?""",
+                          (data['done_sets'], data['done_reps'], data['done_weight'], data['notes'], data['status'], date_str, ex_name))
+                if data['status'] != "completed":
+                    all_completed = False
+            conn.commit()
+            
+            day_status = "completed" if all_completed else "pending"
+            c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, day_status, notes))
+            conn.commit()
+            st.success("Exercises logged! Day status updated.")
+    else:
+        st.info("No exercises scheduled for this day.")
 
 elif page == "Export":
     st.header("Export Data")
