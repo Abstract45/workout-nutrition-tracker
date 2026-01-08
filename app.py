@@ -4,6 +4,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 import calendar
+import re  # Added for parsing sets
 
 # Database setup
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
@@ -83,12 +84,13 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                         # Insert per-set rows
                         exercises = phase.get('exercises', {}).get(workout_type, [])
                         for ex in exercises:
-                            # Parse num_sets: take max if range like "4-5"
+                            # Parse num_sets robustly
                             sets_str = str(ex['sets'])
-                            if '-' in sets_str:
-                                num_sets = int(sets_str.split('-')[-1])
+                            nums = re.findall(r'\d+', sets_str)
+                            if nums:
+                                num_sets = max(int(num) for num in nums)
                             else:
-                                num_sets = int(sets_str)
+                                num_sets = 1  # Fallback
                             for set_num in range(1, num_sets + 1):
                                 c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
                                           (date_str, ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
