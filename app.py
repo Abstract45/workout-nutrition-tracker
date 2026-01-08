@@ -47,7 +47,7 @@ if page == "Load Routine":
             st.error("Invalid JSON format.")
 
 elif page == "Monthly Calendar" and st.session_state.routine:
-    st.header("Monthly Workout Overview")
+    st.header("Workout Calendar (Monthly View)")
     
     # Generate schedule if not already
     if st.button("Generate/Refresh Schedule"):
@@ -88,14 +88,13 @@ elif page == "Monthly Calendar" and st.session_state.routine:
             phase_start = phase_end
         st.success("Schedule generated/updated!")
     
-    # Select month
+    # Select year and month separately (fix for invalid date_input format)
     today = datetime.today()
-    month = st.date_input("Select Month", today, format="MM/YYYY", key="month_select")
-    year, month_num = month.year, month.month
+    year = st.selectbox("Select Year", range(today.year - 5, today.year + 6), index=5)
+    month_num = st.selectbox("Select Month", list(range(1, 13)), index=today.month - 1, format_func=lambda x: calendar.month_name[x])
     
     # Build calendar table
     cal = calendar.monthcalendar(year, month_num)
-    days_in_month = len(cal) * 7
     df_cal = pd.DataFrame(index=range(len(cal)), columns=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
     
     df_days = pd.read_sql_query("SELECT date, status FROM workout_days", conn)
@@ -117,7 +116,7 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                     df_cal.iloc[week_num, day_num] = str(day)
     
     st.table(df_cal)
-    st.info("Use 'Log Day' to select a date and view/log exercises. ✅ = Completed, ❌ = Pending/Rescheduled.")
+    st.info("✅ = Completed, ❌ = Pending/Rescheduled. Use 'Log Day' to select a date and log exercises.")
 
 elif page == "Log Day":
     st.header("Log/Check Off a Day")
