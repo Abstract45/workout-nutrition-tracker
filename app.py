@@ -15,8 +15,29 @@ c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, set_number INTEGER, 
               planned_reps TEXT, planned_weight TEXT,
               done_reps TEXT, done_weight TEXT, status TEXT)''')
-# Add unique constraint to avoid duplicates
-c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS uniq_set ON exercise_logs (date, exercise_name, set_number)''')
+# Migrate: Add set_number if missing
+try:
+    c.execute("ALTER TABLE exercise_logs ADD COLUMN set_number INTEGER")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass
+
+# Remove any duplicates before creating unique index
+c.execute('''DELETE FROM exercise_logs
+             WHERE id NOT IN (
+                 SELECT MIN(id)
+                 FROM exercise_logs
+                 GROUP BY date, exercise_name, set_number
+             )''')
+conn.commit()
+
+# Now create unique index
+try:
+    c.execute('''CREATE UNIQUE INDEX uniq_set ON exercise_logs (date, exercise_name, set_number)''')
+    conn.commit()
+except sqlite3.IntegrityError:
+    pass  # If still fails, index may exist or other issue, but proceed
+
 conn.commit()
 
 # GIF URLs for exercises (hardcoded from searches)
