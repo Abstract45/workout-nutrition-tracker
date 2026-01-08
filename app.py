@@ -1,139 +1,118 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-import datetime
-import altair as alt  # For charts
+import json
+from datetime import datetime, timedelta
+import calendar as py_calendar
+from streamlit_calendar import calendar  # For calendar view
 
-# Database setup
+# Database setup for checkmarks
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
 c = conn.cursor()
-
-# Create tables if not exist
-c.execute('''CREATE TABLE IF NOT EXISTS workouts
-             (date TEXT, exercise TEXT, sets INTEGER, reps TEXT, weight REAL, notes TEXT)''')
-c.execute('''CREATE TABLE IF NOT EXISTS nutrition
-             (date TEXT, calories REAL, protein REAL, carbs REAL, fats REAL, notes TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS workout_days
+             (date TEXT PRIMARY KEY, status TEXT, notes TEXT)''')  # status: 'pending', 'completed', 'rescheduled'
 conn.commit()
 
-# Your routine exercises and goals (customized from our plan)
-exercises = {
-    'Bench Press': {'start': 95, 'goal': 225},
-    'Overhead Press': {'start': 65, 'goal': 135},
-    'T-Bar Rows': {'start': 45, 'goal': 185},
-    'Pull-Ups': {'start': 0, 'goal': 0},  # Bodyweight: Set to 0, hide input
-    'T-Bar Deadlifts': {'start': 135, 'goal': 315},
-    'Barbell Lunges': {'start': 45, 'goal': 135},
-    'Standing Calf Raises': {'start': 95, 'goal': 225},
-    # Add more if needed, e.g., cardio sessions
-}
-
-nutrition_targets = {'calories': 2500, 'protein': 160, 'carbs': 310, 'fats': 70}
-
 # App layout
-st.title("Workout & Nutrition Tracker")
-st.markdown("Log your sessions, track progress, and export data. Based on your back-safe routine.")
+st.title("Calendar-Based Workout Tracker")
+st.markdown("Load your routine JSON, view calendar, check off days, and track progress.")
 
-# Sidebar for navigation
-page = st.sidebar.selectbox("Choose Section", ["Log Workout", "Log Nutrition", "View Progress", "Export Data"])
+# Sidebar
+page = st.sidebar.selectbox("Section", ["Load Routine", "Calendar View", "Log Day", "Export"])
 
-# Ramadan toggle
-ramadan_mode = st.sidebar.checkbox("Ramadan Mode (Reduce volume by 20-30%)")
+# Global routine var
+if 'routine' not in st.session_state:
+    st.session_state.routine = None
 
-if page == "Log Workout":
-    st.header("Log a Workout")
-    date = st.date_input("Date", datetime.date.today())
-    exercise = st.selectbox("Exercise", list(exercises.keys()))
-    sets = st.number_input("Sets", min_value=1, value=3)
-    reps = st.text_input("Reps (e.g., 8-12 or 5,6,7)", "8-12")
+if page == "Load Routine":
+    st.header("Load Workout Routine JSON")
+    json_input = st.text_area("Paste JSON here", height=300)
+    uploaded_file = st.file_uploader("Or upload JSON file", type="json")
     
-    # Conditional weight input: Skip for bodyweight exercises like Pull-Ups
-    if exercise == 'Pull-Ups':
-        weight = 0.0  # Default to 0 for bodyweight
-        st.info("Pull-Ups are bodyweight—no weight needed.")
-    else:
-        start_weight = exercises[exercise]['start']
-        weight = st.number_input("Weight (lbs)", min_value=0.0, value=float(start_weight))  # Ensure float
+    if uploaded_file:
+        json_input = uploaded_file.read().decode("utf-8")
     
-    notes = st.text_area("Notes (e.g., form felt good)")
-    
-    if ramadan_mode:
-        st.info("Ramadan adjustment: Suggest reducing sets to " + str(int(sets * 0.7)))
-    
-    if st.button("Save Workout"):
-        c.execute("INSERT INTO workouts VALUES (?, ?, ?, ?, ?, ?)",
-                  (str(date), exercise, sets, reps, weight, notes))
-        conn.commit()
-        st.success("Workout logged!")
+    if st.button("Load JSON"):
+        try:
+            st.session_state.routine = json.loads(json_input)
+            st.success("Routine loaded! Go to Calendar View.")
+        except json.JSONDecodeError:
+            st.error("Invalid JSON format.")
 
-elif page == "Log Nutrition":
-    st.header("Log Nutrition")
-    date = st.date_input("Date", datetime.date.today())
-    calories = st.number_input("Calories", min_value=0.0, value=nutrition_targets['calories'])
-    protein = st.number_input("Protein (g)", min_value=0.0, value=nutrition_targets['protein'])
-    carbs = st.number_input("Carbs (g)", min_value=0.0, value=nutrition_targets['carbs'])
-    fats = st.number_input("Fats (g)", min_value=0.0, value=nutrition_targets['fats'])
-    notes = st.text_area("Notes (e.g., meal sources)")
+elif page == "Calendar View" and st.session_state.routine:
+    st.header("Workout Calendar")
     
-    if ramadan_mode:
-        st.info("Ramadan tip: Focus on high-protein iftar and carb-heavy suhoor.")
+    # Generate events from routine
+    today = datetime.today()
+    events = []
     
-    if st.button("Save Nutrition"):
-        c.execute("INSERT INTO nutrition VALUES (?, ?, ?, ?, ?, ?)",
-                  (str(date), calories, protein, carbs, fats, notes))
-        conn.commit()
-        st.success("Nutrition logged!")
-
-elif page == "View Progress":
-    st.header("Progress Dashboard")
-    
-    # Workouts
-    st.subheader("Workouts")
-    df_workouts = pd.read_sql_query("SELECT * FROM workouts", conn)
-    if not df_workouts.empty:
-        st.dataframe(df_workouts)
+    # Simple logic: Map phases to dates (assuming start today)
+    phase_start = today
+    for phase in st.session_state.routine['phases']:
+        # Parse months, e.g., "1-3" -> 3 months
+        months = phase['months'].split('-')
+        duration_months = int(months[1]) - int(months[0]) + 1
+        phase_end = phase_start + timedelta(days=30 * duration_months)  # Approx
         
-        # Chart: Weight progression per exercise (skip if weight=0)
-        for ex in df_workouts['exercise'].unique():
-            df_ex = df_workouts[df_workouts['exercise'] == ex].sort_values('date')
-            if ex == 'Pull-Ups':
-                continue  # Skip charting weight for bodyweight
-            chart = alt.Chart(df_ex).mark_line().encode(
-                x='date:T',
-                y='weight:Q',
-                tooltip=['date', 'weight', 'reps']
-            ).properties(title=f"{ex} Progress (Goal: {exercises.get(ex, {}).get('goal', 'N/A')})")
-            st.altair_chart(chart, use_container_width=True)
-    else:
-        st.info("No workouts logged yet.")
-    
-    # Nutrition
-    st.subheader("Nutrition")
-    df_nut = pd.read_sql_query("SELECT * FROM nutrition", conn)
-    if not df_nut.empty:
-        st.dataframe(df_nut)
+        for day in phase['schedule']:
+            current = phase_start
+            while current < phase_end:
+                if py_calendar.day_name[current.weekday()] in phase['schedule']:  # Match day name
+                    date_str = current.strftime("%Y-%m-%d")
+                    # Check DB status
+                    c.execute("SELECT status FROM workout_days WHERE date=?", (date_str,))
+                    row = c.fetchone()
+                    status = row[0] if row else "pending"
+                    color = "#00FF00" if status == "completed" else "#FF0000" if status == "rescheduled" else "#FFFF00"
+                    
+                    events.append({
+                        "title": f"{phase['name']} - {day}",
+                        "start": date_str,
+                        "color": color,
+                        "extendedProps": {"notes": json.dumps(phase.get('exercises', {}))}  # Store exercises
+                    })
+                current += timedelta(days=1)
         
-        # Chart: Protein over time
-        chart_prot = alt.Chart(df_nut).mark_bar().encode(
-            x='date:T',
-            y='protein:Q',
-            tooltip=['date', 'protein']
-        ).properties(title=f"Protein Intake (Target: {nutrition_targets['protein']}g)")
-        st.altair_chart(chart_prot, use_container_width=True)
-    else:
-        st.info("No nutrition logged yet.")
+        phase_start = phase_end
+    
+    # Display calendar
+    calendar_options = {
+        "initialView": "dayGridMonth",
+        "editable": True,  # Allow drag to reschedule
+    }
+    cal = calendar(events=events, options=calendar_options)
+    
+    # Handle reschedule if dragged
+    if cal.get("editedEvents"):
+        for ev in cal["editedEvents"]:
+            old_date = ev["oldEvent"]["start"]
+            new_date = ev["newEvent"]["start"]
+            c.execute("UPDATE workout_days SET date=? WHERE date=?", (new_date, old_date))
+            conn.commit()
+            st.success(f"Rescheduled {old_date} to {new_date}")
 
-elif page == "Export Data":
+elif page == "Log Day":
+    st.header("Log/Check Off a Day")
+    date = st.date_input("Select Date", datetime.today())
+    date_str = str(date)
+    
+    c.execute("SELECT status, notes FROM workout_days WHERE date=?", (date_str,))
+    row = c.fetchone()
+    current_status = row[0] if row else "pending"
+    
+    status = st.selectbox("Status", ["pending", "completed", "rescheduled"], index=["pending", "completed", "rescheduled"].index(current_status))
+    notes = st.text_area("Notes", value=row[1] if row else "")
+    
+    if st.button("Save"):
+        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, status, notes))
+        conn.commit()
+        st.success("Day updated!")
+
+elif page == "Export":
     st.header("Export Data")
-    export_type = st.selectbox("Export What?", ["Workouts", "Nutrition", "Both"])
-    
-    if export_type == "Workouts" or export_type == "Both":
-        df_workouts = pd.read_sql_query("SELECT * FROM workouts", conn)
-        csv_work = df_workouts.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Workouts CSV", csv_work, "workouts.csv", "text/csv")
-    
-    if export_type == "Nutrition" or export_type == "Both":
-        df_nut = pd.read_sql_query("SELECT * FROM nutrition", conn)
-        csv_nut = df_nut.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Nutrition CSV", csv_nut, "nutrition.csv", "text/csv")
-    
-    st.info("To check with me: Download CSV, open in Excel/Notepad, copy recent rows, and paste into our chat (e.g., 'Review this log: [paste data]'). I'll analyze progress toward your year goals.")
+    df = pd.read_sql_query("SELECT * FROM workout_days", conn)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", csv, "workout_days.csv", "text/csv")
+
+if not st.session_state.routine:
+    st.warning("Load routine first in 'Load Routine' section.")
