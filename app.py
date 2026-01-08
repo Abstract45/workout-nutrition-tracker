@@ -36,8 +36,7 @@ try:
     c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS uniq_set ON exercise_logs (date, exercise_name, set_number)''')
     conn.commit()
 except sqlite3.OperationalError as e:
-    st.error(f"Database error during index creation: {e}")
-    # Optional: Log or handle
+    pass  # If fails, proceed
 
 conn.commit()
 
@@ -55,6 +54,43 @@ exercise_gifs = {
     "Treadmill Hills": "https://barbend.com/wp-content/uploads/2024/02/treadmill-run-sprint-barbend-movement-gif-masters.gif",
     "Mix of above": ""  # No specific GIF
 }
+
+# Add custom CSS for mobile friendliness
+st.markdown("""
+<style>
+    /* General mobile optimizations */
+    .stApp {
+        max-width: 100vw;
+        overflow-x: hidden;
+    }
+    [data-testid="column"] {
+        width: calc(33% - 1rem) !important;
+        flex: 1 1 calc(33% - 1rem) !important;
+        min-width: calc(33% - 1rem) !important;
+    }
+    .stButton > button {
+        width: 100%;
+    }
+    .stDataFrame {
+        width: 100% !important;
+    }
+    .stTextInput > div > div > div > input {
+        width: 100%;
+    }
+    .stSelectbox > div > div > div > div {
+        width: 100%;
+    }
+    /* Hide sidebar on mobile */
+    @media (max-width: 640px) {
+        section[data-testid="stSidebar"] {
+            display: none !important;
+        }
+        .stSidebar {
+            display: none !important;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # App layout
 st.title("Calendar-Based Workout Tracker")
