@@ -46,18 +46,21 @@ elif page == "Calendar View" and st.session_state.routine:
     
     # Generate schedule if not already in DB (or refresh)
     if st.button("Generate/Refresh Schedule"):
+        progress_bar = st.progress(0)
         today = datetime.today()
+        absolute_end = today + timedelta(days=365)  # Cap at 1 year max
         phase_start = today
-        for phase in st.session_state.routine['phases']:
+        total_days = 0
+        for i, phase in enumerate(st.session_state.routine['phases']):
             months = phase['months'].split('-')
             duration_months = int(months[1]) - int(months[0]) + 1
-            phase_end = phase_start + timedelta(days=30 * duration_months)  # Approx
+            phase_end = min(phase_start + timedelta(days=30 * duration_months), absolute_end)  # Approx, cap total
             
             current = phase_start
+            phase_days = (phase_end - phase_start).days
             while current < phase_end:
                 weekday = get_weekday_name(current.weekday())
-                if weekday in phase['schedule']:
-                    # Find the matching schedule entry (e.g., "Monday (Upper)" -> "Upper")
+                if any(weekday in s for s in phase['schedule']):
                     sched_entry = next((s for s in phase['schedule'] if weekday in s), None)
                     if sched_entry:
                         workout_type = sched_entry.split(' (')[-1].rstrip(')') if '(' in sched_entry else "Full Body"
@@ -67,8 +70,12 @@ elif page == "Calendar View" and st.session_state.routine:
                         # Insert if not exists
                         c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes, workout_details) VALUES (?, ?, ?, ?)",
                                   (date_str, "pending", phase.get('notes', ''), exercises_json))
+                        conn.commit()
+                current += timedelta(days=1)
+                total_days += 1
+                progress_bar.progress(min(total_days / 365, 1.0))  # Update progress
+            
             phase_start = phase_end
-        conn.commit()
         st.success("Schedule generated/updated!")
     
     # Display editable table
@@ -120,4 +127,9 @@ elif page == "Log Day":
 
 elif page == "Export":
     st.header("Export Data")
-    df = pd.read_sql
+    df = pd.read_sql_query("SELECT * FROM workout_days", conn)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", csv, "workout_days.csv", "text/csv")
+
+if not st.session_state.routine:
+    st.warning("Load routine first in 'Load Routine' section.")
