@@ -20,7 +20,7 @@ exercises = {
     'Bench Press': {'start': 95, 'goal': 225},
     'Overhead Press': {'start': 65, 'goal': 135},
     'T-Bar Rows': {'start': 45, 'goal': 185},
-    'Pull-Ups': {'start': '3-5', 'goal': '12'},  # Bodyweight, reps as string
+    'Pull-Ups': {'start': 0, 'goal': 0},  # Bodyweight: Set to 0, hide input
     'T-Bar Deadlifts': {'start': 135, 'goal': 315},
     'Barbell Lunges': {'start': 45, 'goal': 135},
     'Standing Calf Raises': {'start': 95, 'goal': 225},
@@ -45,7 +45,15 @@ if page == "Log Workout":
     exercise = st.selectbox("Exercise", list(exercises.keys()))
     sets = st.number_input("Sets", min_value=1, value=3)
     reps = st.text_input("Reps (e.g., 8-12 or 5,6,7)", "8-12")
-    weight = st.number_input("Weight (lbs)", min_value=0.0, value=exercises[exercise]['start'])
+    
+    # Conditional weight input: Skip for bodyweight exercises like Pull-Ups
+    if exercise == 'Pull-Ups':
+        weight = 0.0  # Default to 0 for bodyweight
+        st.info("Pull-Ups are bodyweight—no weight needed.")
+    else:
+        start_weight = exercises[exercise]['start']
+        weight = st.number_input("Weight (lbs)", min_value=0.0, value=float(start_weight))  # Ensure float
+    
     notes = st.text_area("Notes (e.g., form felt good)")
     
     if ramadan_mode:
@@ -84,9 +92,11 @@ elif page == "View Progress":
     if not df_workouts.empty:
         st.dataframe(df_workouts)
         
-        # Chart: Weight progression per exercise
+        # Chart: Weight progression per exercise (skip if weight=0)
         for ex in df_workouts['exercise'].unique():
             df_ex = df_workouts[df_workouts['exercise'] == ex].sort_values('date')
+            if ex == 'Pull-Ups':
+                continue  # Skip charting weight for bodyweight
             chart = alt.Chart(df_ex).mark_line().encode(
                 x='date:T',
                 y='weight:Q',
@@ -127,5 +137,3 @@ elif page == "Export Data":
         st.download_button("Download Nutrition CSV", csv_nut, "nutrition.csv", "text/csv")
     
     st.info("To check with me: Download CSV, open in Excel/Notepad, copy recent rows, and paste into our chat (e.g., 'Review this log: [paste data]'). I'll analyze progress toward your year goals.")
-
-### Code for `requirements.txt`
