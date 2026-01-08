@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS workout_days
-             (date TEXT PRIMARY KEY, status TEXT, notes TEXT, workout_details TEXT)''')  # Added workout_details for exercises
+             (date TEXT PRIMARY KEY, status TEXT, notes TEXT, workout_details TEXT)''')  # workout_details as JSON string
 conn.commit()
 
 # App layout
@@ -65,7 +65,7 @@ elif page == "Calendar View" and st.session_state.routine:
                     if sched_entry:
                         workout_type = sched_entry.split(' (')[-1].rstrip(')') if '(' in sched_entry else "Full Body"
                         date_str = current.strftime("%Y-%m-%d")
-                        exercises_json = json.dumps(phase.get('exercises', {}))  # Store exercises
+                        exercises_json = json.dumps(phase.get('exercises', {}))  # Store as string
                         
                         # Insert if not exists
                         c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes, workout_details) VALUES (?, ?, ?, ?)",
@@ -78,17 +78,16 @@ elif page == "Calendar View" and st.session_state.routine:
             phase_start = phase_end
         st.success("Schedule generated/updated!")
     
-    # Display editable table
+    # Display editable table (keep workout_details as JSON string)
     df = pd.read_sql_query("SELECT date, status, notes, workout_details FROM workout_days ORDER BY date", conn)
     if not df.empty:
-        df['workout_details'] = df['workout_details'].apply(lambda x: json.loads(x) if x else {})  # Parse JSON for display
         edited_df = st.data_editor(
             df,
             column_config={
                 "date": "Date",
                 "status": st.column_config.SelectboxColumn(options=["pending", "completed", "rescheduled"]),
                 "notes": "Notes",
-                "workout_details": st.column_config.TextColumn("Workout Details (JSON)"),
+                "workout_details": st.column_config.TextColumn("Workout Details (Edit as JSON string)"),
             },
             use_container_width=True,
             num_rows="dynamic"  # Allow adding/rescheduling new rows
