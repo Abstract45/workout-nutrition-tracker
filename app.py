@@ -3,19 +3,17 @@ import pandas as pd
 import sqlite3
 import json
 from datetime import datetime, timedelta
-import calendar as py_calendar
-from streamlit_calendar import calendar  # For calendar view
 
 # Database setup for checkmarks
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS workout_days
-             (date TEXT PRIMARY KEY, status TEXT, notes TEXT)''')  # status: 'pending', 'completed', 'rescheduled'
+             (date TEXT PRIMARY KEY, status TEXT, notes TEXT, workout_details TEXT)''')  # Added workout_details for exercises
 conn.commit()
 
 # App layout
 st.title("Calendar-Based Workout Tracker")
-st.markdown("Load your routine JSON, view calendar, check off days, and track progress.")
+st.markdown("Load your routine JSON, view/edit calendar as a table, check off days, and track progress.")
 
 # Sidebar
 page = st.sidebar.selectbox("Section", ["Load Routine", "Calendar View", "Log Day", "Export"])
@@ -23,6 +21,10 @@ page = st.sidebar.selectbox("Section", ["Load Routine", "Calendar View", "Log Da
 # Global routine var
 if 'routine' not in st.session_state:
     st.session_state.routine = None
+
+def get_weekday_name(day_index):
+    weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    return weekdays[day_index]
 
 if page == "Load Routine":
     st.header("Load Workout Routine JSON")
@@ -35,84 +37,87 @@ if page == "Load Routine":
     if st.button("Load JSON"):
         try:
             st.session_state.routine = json.loads(json_input)
-            st.success("Routine loaded! Go to Calendar View.")
+            st.success("Routine loaded! Go to Calendar View to generate schedule.")
         except json.JSONDecodeError:
             st.error("Invalid JSON format.")
 
 elif page == "Calendar View" and st.session_state.routine:
-    st.header("Workout Calendar")
+    st.header("Workout Calendar (Table View)")
     
-    # Generate events from routine
-    today = datetime.today()
-    events = []
-    
-    # Simple logic: Map phases to dates (assuming start today)
-    phase_start = today
-    for phase in st.session_state.routine['phases']:
-        # Parse months, e.g., "1-3" -> 3 months
-        months = phase['months'].split('-')
-        duration_months = int(months[1]) - int(months[0]) + 1
-        phase_end = phase_start + timedelta(days=30 * duration_months)  # Approx
-        
-        for day in phase['schedule']:
+    # Generate schedule if not already in DB (or refresh)
+    if st.button("Generate/Refresh Schedule"):
+        today = datetime.today()
+        phase_start = today
+        for phase in st.session_state.routine['phases']:
+            months = phase['months'].split('-')
+            duration_months = int(months[1]) - int(months[0]) + 1
+            phase_end = phase_start + timedelta(days=30 * duration_months)  # Approx
+            
             current = phase_start
             while current < phase_end:
-                if py_calendar.day_name[current.weekday()] in phase['schedule']:  # Match day name
-                    date_str = current.strftime("%Y-%m-%d")
-                    # Check DB status
-                    c.execute("SELECT status FROM workout_days WHERE date=?", (date_str,))
-                    row = c.fetchone()
-                    status = row[0] if row else "pending"
-                    color = "#00FF00" if status == "completed" else "#FF0000" if status == "rescheduled" else "#FFFF00"
-                    
-                    events.append({
-                        "title": f"{phase['name']} - {day}",
-                        "start": date_str,
-                        "color": color,
-                        "extendedProps": {"notes": json.dumps(phase.get('exercises', {}))}  # Store exercises
-                    })
-                current += timedelta(days=1)
+                weekday = get_weekday_name(current.weekday())
+                if weekday in phase['schedule']:
+                    # Find the matching schedule entry (e.g., "Monday (Upper)" -> "Upper")
+                    sched_entry = next((s for s in phase['schedule'] if weekday in s), None)
+                    if sched_entry:
+                        workout_type = sched_entry.split(' (')[-1].rstrip(')') if '(' in sched_entry else "Full Body"
+                        date_str = current.strftime("%Y-%m-%d")
+                        exercises_json = json.dumps(phase.get('exercises', {}))  # Store exercises
+                        
+                        # Insert if not exists
+                        c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes, workout_details) VALUES (?, ?, ?, ?)",
+                                  (date_str, "pending", phase.get('notes', ''), exercises_json))
+            phase_start = phase_end
+        conn.commit()
+        st.success("Schedule generated/updated!")
+    
+    # Display editable table
+    df = pd.read_sql_query("SELECT date, status, notes, workout_details FROM workout_days ORDER BY date", conn)
+    if not df.empty:
+        df['workout_details'] = df['workout_details'].apply(lambda x: json.loads(x) if x else {})  # Parse JSON for display
+        edited_df = st.data_editor(
+            df,
+            column_config={
+                "date": "Date",
+                "status": st.column_config.SelectboxColumn(options=["pending", "completed", "rescheduled"]),
+                "notes": "Notes",
+                "workout_details": st.column_config.TextColumn("Workout Details (JSON)"),
+            },
+            use_container_width=True,
+            num_rows="dynamic"  # Allow adding/rescheduling new rows
+        )
         
-        phase_start = phase_end
-    
-    # Display calendar
-    calendar_options = {
-        "initialView": "dayGridMonth",
-        "editable": True,  # Allow drag to reschedule
-    }
-    cal = calendar(events=events, options=calendar_options)
-    
-    # Handle reschedule if dragged
-    if cal.get("editedEvents"):
-        for ev in cal["editedEvents"]:
-            old_date = ev["oldEvent"]["start"]
-            new_date = ev["newEvent"]["start"]
-            c.execute("UPDATE workout_days SET date=? WHERE date=?", (new_date, old_date))
+        # Save edits back to DB
+        if st.button("Save Changes"):
+            for idx, row in edited_df.iterrows():
+                workout_details_str = json.dumps(row['workout_details']) if isinstance(row['workout_details'], dict) else row['workout_details']
+                c.execute("REPLACE INTO workout_days VALUES (?, ?, ?, ?)",
+                          (row['date'], row['status'], row['notes'], workout_details_str))
             conn.commit()
-            st.success(f"Rescheduled {old_date} to {new_date}")
+            st.success("Changes saved!")
+    else:
+        st.info("No schedule yet—click 'Generate/Refresh Schedule' after loading routine.")
 
 elif page == "Log Day":
     st.header("Log/Check Off a Day")
     date = st.date_input("Select Date", datetime.today())
     date_str = str(date)
     
-    c.execute("SELECT status, notes FROM workout_days WHERE date=?", (date_str,))
+    c.execute("SELECT status, notes, workout_details FROM workout_days WHERE date=?", (date_str,))
     row = c.fetchone()
     current_status = row[0] if row else "pending"
+    current_notes = row[1] if row else ""
+    current_details = json.loads(row[2]) if row and row[2] else {}
     
     status = st.selectbox("Status", ["pending", "completed", "rescheduled"], index=["pending", "completed", "rescheduled"].index(current_status))
-    notes = st.text_area("Notes", value=row[1] if row else "")
+    notes = st.text_area("Notes", value=current_notes)
+    details_json = st.text_area("Workout Details (JSON)", value=json.dumps(current_details, indent=2))
     
     if st.button("Save"):
-        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, status, notes))
+        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?, ?)", (date_str, status, notes, details_json))
         conn.commit()
         st.success("Day updated!")
 
 elif page == "Export":
     st.header("Export Data")
-    df = pd.read_sql_query("SELECT * FROM workout_days", conn)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download CSV", csv, "workout_days.csv", "text/csv")
-
-if not st.session_state.routine:
-    st.warning("Load routine first in 'Load Routine' section.")
+    df = pd.read_sql
