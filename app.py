@@ -83,9 +83,12 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                         # Insert per-set rows
                         exercises = phase.get('exercises', {}).get(workout_type, [])
                         for ex in exercises:
-                            # Parse num_sets: take first number if range like "4-5"
+                            # Parse num_sets: take max if range like "4-5"
                             sets_str = str(ex['sets'])
-                            num_sets = int(sets_str.split('-')[0]) if '-' in sets_str else int(sets_str)
+                            if '-' in sets_str:
+                                num_sets = int(sets_str.split('-')[-1])
+                            else:
+                                num_sets = int(sets_str)
                             for set_num in range(1, num_sets + 1):
                                 c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
                                           (date_str, ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
@@ -166,7 +169,8 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                     },
                     num_rows="dynamic",
                     hide_index=True,
-                    use_container_width=True
+                    use_container_width=True,
+                    height=500  # Increased height to fit more on screen
                 )
                 
                 if st.button("Save Changes"):
@@ -197,7 +201,8 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                         "status": "Status",
                     },
                     hide_index=True,
-                    use_container_width=True
+                    use_container_width=True,
+                    height=500  # Increased height
                 )
                 st.text_area("Day Notes", value=current_notes, disabled=True)
                 
