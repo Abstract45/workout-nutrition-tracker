@@ -31,12 +31,13 @@ c.execute('''DELETE FROM exercise_logs
              )''')
 conn.commit()
 
-# Now create unique index
+# Now create unique index if not exists
 try:
-    c.execute('''CREATE UNIQUE INDEX uniq_set ON exercise_logs (date, exercise_name, set_number)''')
+    c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS uniq_set ON exercise_logs (date, exercise_name, set_number)''')
     conn.commit()
-except sqlite3.IntegrityError:
-    pass  # If still fails, index may exist or other issue, but proceed
+except sqlite3.OperationalError as e:
+    st.error(f"Database error during index creation: {e}")
+    # Optional: Log or handle
 
 conn.commit()
 
