@@ -55,7 +55,7 @@ exercise_gifs = {
     "Mix of above": ""  # No specific GIF
 }
 
-# Add custom CSS for mobile friendliness (updated to keep sidebar visible with toggle)
+# Add custom CSS for mobile friendliness (updated: no sidebar hiding, better responsiveness)
 st.markdown("""
 <style>
     /* General mobile optimizations */
@@ -64,44 +64,49 @@ st.markdown("""
         overflow-x: hidden;
     }
     [data-testid="column"] {
-        width: calc(33% - 1rem) !important;
-        flex: 1 1 calc(33% - 1rem) !important;
-        min-width: calc(33% - 1rem) !important;
+        width: calc(50% - 1rem) !important;
+        flex: 1 1 calc(50% - 1rem) !important;
+        min-width: calc(50% - 1rem) !important;
     }
     .stButton > button {
         width: 100%;
+        font-size: 14px;  /* Smaller buttons on mobile */
     }
     .stDataFrame {
         width: 100% !important;
+        font-size: 12px;  /* Smaller text for tables */
     }
     .stTextInput > div > div > div > input {
         width: 100%;
+        font-size: 14px;
     }
     .stSelectbox > div > div > div > div {
         width: 100%;
+        font-size: 14px;
     }
-    /* Make sidebar toggleable on mobile */
+    /* Calendar buttons smaller on mobile */
     @media (max-width: 640px) {
+        .stButton > button {
+            padding: 0.2rem 0.4rem;
+            font-size: 12px;
+        }
+        .stHeader {
+            font-size: 18px;
+        }
+        .stSubheader {
+            font-size: 16px;
+        }
+        .stMarkdown {
+            font-size: 14px;
+        }
+        .stImage {
+            max-width: 100%;
+        }
+        /* Sidebar always visible but collapsible if needed */
         section[data-testid="stSidebar"] {
-            display: block !important;  /* Keep visible */
-            position: fixed;
-            top: 0;
-            left: -250px;  /* Hidden off-screen by default */
-            width: 250px;
-            height: 100vh;
-            transition: left 0.3s ease-in-out;
-            z-index: 1000;
-            background-color: var(--background-color);
-        }
-        .stSidebar[aria-expanded="true"] {
-            left: 0;  /* Slide in when expanded */
-        }
-        /* Add a toggle button for sidebar */
-        .sidebar-toggle {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            z-index: 1001;
+            display: block !important;
+            width: 80vw !important;
+            max-width: 300px;
         }
     }
 </style>
@@ -110,11 +115,6 @@ st.markdown("""
 # App layout
 st.title("Calendar-Based Workout Tracker")
 st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-set in a single table.")
-
-# Sidebar toggle for mobile
-if st.button("☰ Menu", key="sidebar_toggle"):
-    st.session_state.sidebar_expanded = not st.session_state.get('sidebar_expanded', False)
-    st.rerun()
 
 # Sidebar
 page = st.sidebar.selectbox("Section", ["Load Routine", "Monthly Calendar", "Export"])
