@@ -111,7 +111,13 @@ st.markdown("""
         }
         /* Sidebar adjustments */
         section[data-testid="stSidebar"] {
-            display: none !important;  /* Hide sidebar on mobile */
+            display: block !important;
+            width: 100% !important;
+            max-width: none !important;
+            padding: 0.5rem !important;
+        }
+        .stSidebar .stSelectbox {
+            width: 100%;
         }
         /* Table scroll */
         [data-testid="stDataFrame"] {
@@ -126,13 +132,8 @@ st.markdown("""
 st.title("Calendar-Based Workout Tracker")
 st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-set in a single table.")
 
-# Replace sidebar with top dropdown
-if 'page' not in st.session_state:
-    st.session_state.page = "Monthly Calendar"
-
-st.session_state.page = st.selectbox("Select Section", ["Load Routine", "Monthly Calendar", "Export"], index=["Load Routine", "Monthly Calendar", "Export"].index(st.session_state.page))
-
-page = st.session_state.page
+# Sidebar
+page = st.sidebar.selectbox("Section", ["Load Routine", "Monthly Calendar", "Export"])
 
 # Global routine var
 if 'routine' not in st.session_state:
@@ -270,7 +271,7 @@ elif page == "Monthly Calendar" and st.session_state.routine:
             
             if st.session_state.get('edit_mode', False):
                 # Edit mode: Editable table
-                notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected_edit")
+                notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected")
                 edited_df = st.data_editor(
                     df_sets,
                     column_config={
