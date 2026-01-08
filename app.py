@@ -13,12 +13,12 @@ c.execute('''CREATE TABLE IF NOT EXISTS workout_days
 c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, 
               planned_sets TEXT, planned_reps TEXT, planned_weight TEXT,
-              done_sets TEXT, done_reps TEXT, done_weight TEXT, notes TEXT)''')
+              done_sets TEXT, done_reps TEXT, done_weight TEXT, notes TEXT, status TEXT)''')  # Added status for per-exercise
 conn.commit()
 
 # App layout
 st.title("Calendar-Based Workout Tracker")
-st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days.")
+st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-exercise with individual status.")
 
 # Sidebar
 page = st.sidebar.selectbox("Section", ["Load Routine", "Monthly Calendar", "Log Day", "Export"])
@@ -74,12 +74,12 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                         c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes) VALUES (?, ?, ?)",
                                   (date_str, "pending", phase.get('notes', '')))
                         
-                        # Exercises
+                        # Exercises with initial status
                         exercises = phase.get('exercises', {}).get(workout_type, [])
                         
                         for ex in exercises:
-                            c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, planned_sets, planned_reps, planned_weight) VALUES (?, ?, ?, ?, ?)",
-                                      (date_str, ex['name'], str(ex['sets']), ex['reps'], str(ex.get('start_weight', '0'))))
+                            c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, planned_sets, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                      (date_str, ex['name'], str(ex['sets']), ex['reps'], str(ex.get('start_weight', '0')), "pending"))
                         conn.commit()
                 current += timedelta(days=1)
                 total_days += 1
@@ -88,7 +88,7 @@ elif page == "Monthly Calendar" and st.session_state.routine:
             phase_start = phase_end
         st.success("Schedule generated/updated!")
     
-    # Select year and month separately (fix for invalid date_input format)
+    # Select year and month
     today = datetime.today()
     year = st.selectbox("Select Year", range(today.year - 5, today.year + 6), index=5)
     month_num = st.selectbox("Select Month", list(range(1, 13)), index=today.month - 1, format_func=lambda x: calendar.month_name[x])
@@ -123,18 +123,16 @@ elif page == "Log Day":
     date = st.date_input("Select Date", datetime.today())
     date_str = date.strftime("%Y-%m-%d")
     
-    # Day info
+    # Day info (status now derived from exercises)
     c.execute("SELECT status, notes FROM workout_days WHERE date=?", (date_str,))
     row = c.fetchone()
-    current_status = row[0] if row else "pending"
     current_notes = row[1] if row else ""
     
-    status = st.selectbox("Status", ["pending", "completed", "rescheduled"], index=["pending", "completed", "rescheduled"].index(current_status))
     notes = st.text_area("Day Notes", value=current_notes)
     
-    # Exercises sub-table
-    st.subheader("Exercises for this Day")
-    df_ex = pd.read_sql_query("SELECT exercise_name, planned_sets, planned_reps, planned_weight, done_sets, done_reps, done_weight, notes FROM exercise_logs WHERE date=?", conn, params=(date_str,))
+    # Exercises sub-table with per-exercise status
+    st.subheader("Exercises for this Day (Log Per Exercise)")
+    df_ex = pd.read_sql_query("SELECT exercise_name, planned_sets, planned_reps, planned_weight, done_sets, done_reps, done_weight, notes, status FROM exercise_logs WHERE date=?", conn, params=(date_str,))
     if not df_ex.empty:
         edited_ex = st.data_editor(
             df_ex,
@@ -147,25 +145,31 @@ elif page == "Log Day":
                 "done_reps": "Done Reps",
                 "done_weight": "Done Weight",
                 "notes": "Exercise Notes",
+                "status": st.column_config.SelectboxColumn("Status", options=["pending", "completed"]),
             },
             use_container_width=True,
             hide_index=False
         )
+        
+        # Derive day status: completed if all exercises completed
+        all_completed = all(s == "completed" for s in edited_ex['status'])
+        day_status = "completed" if all_completed else "pending"
     else:
         edited_ex = pd.DataFrame()
+        day_status = "pending"
         st.info("No exercises scheduled for this day.")
     
     if st.button("Save"):
-        # Save day
-        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, status, notes))
+        # Save day (update status based on exercises)
+        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, day_status, notes))
         
         # Save exercises
         for idx, row in edited_ex.iterrows():
-            c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?
+            c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?, status=?
                          WHERE date=? AND exercise_name=?""",
-                      (row['done_sets'], row['done_reps'], row['done_weight'], row['notes'], date_str, row['exercise_name']))
+                      (row['done_sets'], row['done_reps'], row['done_weight'], row['notes'], row['status'], date_str, row['exercise_name']))
         conn.commit()
-        st.success("Day updated! Check Monthly Calendar for status mark.")
+        st.success("Exercises logged individually! Day status updated based on all exercises being completed.")
 
 elif page == "Export":
     st.header("Export Data")
