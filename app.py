@@ -3,7 +3,6 @@ import pandas as pd
 import sqlite3
 import json
 from datetime import datetime, timedelta
-import calendar
 import re  # For parsing sets
 
 # Database setup
@@ -15,14 +14,12 @@ c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, set_number INTEGER, 
               planned_reps TEXT, planned_weight TEXT,
               done_reps TEXT, done_weight TEXT, status TEXT)''')
-# Migrate: Add set_number if missing
 try:
     c.execute("ALTER TABLE exercise_logs ADD COLUMN set_number INTEGER")
     conn.commit()
 except sqlite3.OperationalError:
     pass
 
-# Remove duplicates
 c.execute('''DELETE FROM exercise_logs
              WHERE id NOT IN (
                  SELECT MIN(id)
@@ -31,7 +28,6 @@ c.execute('''DELETE FROM exercise_logs
              )''')
 conn.commit()
 
-# Unique index
 try:
     c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS uniq_set ON exercise_logs (date, exercise_name, set_number)''')
     conn.commit()
@@ -55,18 +51,18 @@ exercise_gifs = {
     "Mix of above": ""
 }
 
-# Mobile CSS (full width, no sidebar, scrollable)
+# Mobile CSS (full width, no sidebar, scrollable tables)
 st.markdown("""
 <style>
     .stApp {max-width: 100vw; overflow-x: hidden;}
     section[data-testid="stSidebar"] {display: none !important;}
-    .stDataFrame, .stDataEditor {overflow-x: auto; font-size: 14px;}
+    .stDataFrame {overflow-x: auto; font-size: 14px;}
     .stButton > button {width: 100%; margin: 0.5rem 0;}
     .stTextArea, .stTextInput {width: 100% !important;}
     .stSelectbox {width: 100% !important;}
     @media (max-width: 640px) {
-        .stMarkdown {font-size: 14px;}
-        .stHeader, .stSubheader {text-align: center;}
+        .stRadio > div {flex-direction: row; flex-wrap: wrap;}
+        .stRadio > div > label {margin: 0.2rem;}
     }
 </style>
 """, unsafe_allow_html=True)
@@ -76,52 +72,53 @@ st.title("Workout Tracker")
 # Initialize session state
 if 'routine' not in st.session_state:
     st.session_state.routine = None
-if 'page' not in st.session_state:
-    st.session_state.page = "Calendar"
 if 'selected_date' not in st.session_state:
     st.session_state.selected_date = None
 if 'edit_mode' not in st.session_state:
     st.session_state.edit_mode = False
 
 # Top navigation dropdown (mobile-friendly)
-page = st.selectbox("Navigate", ["Load Routine", "Calendar", "Export"], index=["Load Routine", "Calendar", "Export"].index(st.session_state.page))
-st.session_state.page = page
+page = st.selectbox("Navigate", ["Load Routine", "Calendar", "Export"], key="nav_dropdown")
 
 if page == "Load Routine":
     st.header("Load Routine JSON")
-    json_input = st.text_area("Paste JSON here", height=300)
-    uploaded = st.file_uploader("Or upload JSON file", type="json")
+    json_input = st.text_area("Paste JSON", height=300)
+    uploaded = st.file_uploader("Or upload JSON", type="json")
     if uploaded:
         json_input = uploaded.read().decode("utf-8")
     if st.button("Load JSON"):
         try:
             st.session_state.routine = json.loads(json_input)
-            st.success("Routine loaded successfully!")
-        except Exception as e:
-            st.error(f"Invalid JSON: {e}")
+            st.success("Loaded! Data saved.")
+            with open("routine.json", "w") as f:
+                f.write(json_input)  # Save to file for persistence
+        except:
+            st.error("Invalid JSON")
 
 elif page == "Calendar" and st.session_state.get('routine'):
     st.header("Workout Days")
     
     if st.button("Generate/Refresh Schedule"):
-        with st.spinner("Generating schedule..."):
+        with st.spinner("Generating..."):
             today = datetime.today()
             end = today + timedelta(days=365)
             current = today
             for phase in st.session_state.routine['phases']:
                 # Simplified generation - adjust for your phase logic
-                exercises = phase.get('exercises', {}).get("Full Body", [])
+                exercises = phase.get('exercises', {}).get("Full Body", [])  # Simplify for your structure
                 for ex in exercises:
                     sets_str = str(ex['sets'])
                     nums = re.findall(r'\d+', sets_str)
                     num_sets = max(map(int, nums)) if nums else 1
                     for set_num in range(1, num_sets + 1):
+                        # Insert logic (simplified)
                         c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
                                   ("2026-01-08", ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
                 conn.commit()
-        st.success("Schedule generated!")
+        st.success("Generated!")
+        st.rerun()
 
-    # Vertical list of workout days (mobile-friendly)
+    # Vertical list of workout days (mobile-friendly, no chopping)
     df_days = pd.read_sql_query("SELECT date, status FROM workout_days ORDER BY date DESC", conn)
     if not df_days.empty:
         for _, row in df_days.iterrows():
@@ -134,7 +131,7 @@ elif page == "Calendar" and st.session_state.get('routine'):
     else:
         st.info("No scheduled days. Run Generate Schedule after loading routine.")
 
-    # Details
+    # Details for selected day
     if st.session_state.selected_date:
         date_str = st.session_state.selected_date
         st.subheader(f"Workout for {date_str}")
@@ -185,5 +182,11 @@ elif page == "Export":
         csv = df_ex.to_csv(index=False).encode('utf-8')
         st.download_button("Download Logs", csv, "logs.csv", "text/csv")
 
+# Load saved routine if not in session
 if st.session_state.get('routine') is None:
-    st.warning("Load your routine JSON first in 'Load Routine'")
+    try:
+        with open("routine.json", "r") as f:
+            st.session_state.routine = json.loads(f.read())
+        st.info("Loaded saved routine.")
+    except FileNotFoundError:
+        st.warning("No saved routine. Load one.")
