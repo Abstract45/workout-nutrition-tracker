@@ -99,30 +99,96 @@ elif page == "Monthly Calendar" and st.session_state.routine:
     year = st.selectbox("Select Year", range(today.year - 5, today.year + 6), index=5)
     month_num = st.selectbox("Select Month", list(range(1, 13)), index=today.month - 1, format_func=lambda x: calendar.month_name[x])
     
-    # Build calendar table
+    # Build interactive calendar with buttons
     cal = calendar.monthcalendar(year, month_num)
-    df_cal = pd.DataFrame(index=range(len(cal)), columns=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
-    
     df_days = pd.read_sql_query("SELECT date, status FROM workout_days", conn)
     df_days['date'] = pd.to_datetime(df_days['date'])
     df_days_month = df_days[(df_days['date'].dt.year == year) & (df_days['date'].dt.month == month_num)]
     
-    for week_num, week in enumerate(cal):
-        for day_num, day in enumerate(week):
+    st.subheader(calendar.month_name[month_num] + " " + str(year))
+    headers = st.columns(7)
+    for i, day in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+        headers[i].write(day)
+    
+    for week in cal:
+        cols = st.columns(7)
+        for i, day in enumerate(week):
             if day == 0:
-                df_cal.iloc[week_num, day_num] = ""
+                cols[i].write("")
             else:
                 date_str = f"{year}-{month_num:02d}-{day:02d}"
                 row = df_days_month[df_days_month['date'] == date_str]
                 if not row.empty:
                     status = row['status'].values[0]
-                    mark = "✅" if status == "completed" else "❌"
-                    df_cal.iloc[week_num, day_num] = f"{day} {mark}"
+                    mark = "✅" if status == "completed" else "-"
+                    label = f"{day} {mark}"
                 else:
-                    df_cal.iloc[week_num, day_num] = str(day)
+                    label = str(day)
+                
+                if cols[i].button(label, key=f"cal_btn_{date_str}"):
+                    st.session_state.selected_date = date_str
+                    st.rerun()  # Rerun to show log below
     
-    st.table(df_cal)
-    st.info("✅ = Completed, ❌ = Pending/Rescheduled. Use 'Log Day' to select a date and log exercises.")
+    st.info("✅ = Completed, - = Pending/Rescheduled. Click a day to view/log details below.")
+    
+    # Show log for selected date if clicked
+    if 'selected_date' in st.session_state:
+        date_str = st.session_state.selected_date
+        st.subheader(f"Details for {date_str}")
+        
+        # Day notes
+        c.execute("SELECT notes FROM workout_days WHERE date=?", (date_str,))
+        row = c.fetchone()
+        current_notes = row[0] if row else ""
+        notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected")
+        
+        # Fetch exercises
+        df_ex = pd.read_sql_query("SELECT * FROM exercise_logs WHERE date=?", conn, params=(date_str,))
+        
+        if not df_ex.empty:
+            # List each exercise vertically with planned and inputs for done
+            exercise_data = {}
+            for _, ex_row in df_ex.iterrows():
+                ex_name = ex_row['exercise_name']
+                st.markdown(f"**{ex_name}** - Recommended: {ex_row['planned_sets']} sets of {ex_row['planned_reps']} reps at {ex_row['planned_weight']} lbs")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    done_sets = st.text_input(f"Sets ({ex_name})", value=ex_row['done_sets'] or ex_row['planned_sets'], key=f"done_sets_{ex_name}_{date_str}")
+                with col2:
+                    done_reps = st.text_input(f"Reps ({ex_name})", value=ex_row['done_reps'] or ex_row['planned_reps'], key=f"done_reps_{ex_name}_{date_str}")
+                with col3:
+                    done_weight = st.text_input(f"Weight ({ex_name})", value=ex_row['done_weight'] or ex_row['planned_weight'], key=f"done_weight_{ex_name}_{date_str}")
+                with col4:
+                    status = st.selectbox(f"Status ({ex_name})", ["pending", "completed"], index=0 if ex_row['status'] == "pending" else 1, key=f"status_{ex_name}_{date_str}")
+                
+                ex_notes = st.text_area(f"Notes ({ex_name})", value=ex_row['notes'] or "", height=50, key=f"notes_{ex_name}_{date_str}")
+                
+                exercise_data[ex_name] = {
+                    'done_sets': done_sets,
+                    'done_reps': done_reps,
+                    'done_weight': done_weight,
+                    'notes': ex_notes,
+                    'status': status
+                }
+            
+            if st.button("Save Changes for This Day"):
+                all_completed = True
+                for ex_name, data in exercise_data.items():
+                    c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?, status=?
+                                 WHERE date=? AND exercise_name=?""",
+                              (data['done_sets'], data['done_reps'], data['done_weight'], data['notes'], data['status'], date_str, ex_name))
+                    if data['status'] != "completed":
+                        all_completed = False
+                conn.commit()
+                
+                day_status = "completed" if all_completed else "pending"
+                c.execute("UPDATE workout_days SET status=?, notes=? WHERE date=?", (day_status, notes, date_str))
+                conn.commit()
+                st.success("Saved! Calendar updated.")
+                st.rerun()  # Refresh calendar
+        else:
+            st.info("No exercises scheduled for this day.")
 
 elif page == "Log Day":
     st.header("Log/Check Off a Day")
