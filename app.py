@@ -134,7 +134,7 @@ elif page == "Log Day":
     row = c.fetchone()
     current_notes = row[1] if row else ""
     
-    notes = st.text_area("Day Notes", value=current_notes)
+    notes = st.text_area("Day Notes", value=current_notes, key="day_notes")
     
     # Fetch exercises
     df_ex = pd.read_sql_query("SELECT * FROM exercise_logs WHERE date=?", conn, params=(date_str,))
@@ -149,15 +149,15 @@ elif page == "Log Day":
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                done_sets = st.text_input(f"Sets ({ex_name})", value=ex_row['done_sets'] or ex_row['planned_sets'])
+                done_sets = st.text_input(f"Sets ({ex_name})", value=ex_row['done_sets'] or ex_row['planned_sets'], key=f"done_sets_{ex_name}")
             with col2:
-                done_reps = st.text_input(f"Reps ({ex_name})", value=ex_row['done_reps'] or ex_row['planned_reps'])
+                done_reps = st.text_input(f"Reps ({ex_name})", value=ex_row['done_reps'] or ex_row['planned_reps'], key=f"done_reps_{ex_name}")
             with col3:
-                done_weight = st.text_input(f"Weight ({ex_name})", value=ex_row['done_weight'] or ex_row['planned_weight'])
+                done_weight = st.text_input(f"Weight ({ex_name})", value=ex_row['done_weight'] or ex_row['planned_weight'], key=f"done_weight_{ex_name}")
             with col4:
-                status = st.selectbox(f"Status ({ex_name})", ["pending", "completed"], index=0 if ex_row['status'] == "pending" else 1)
+                status = st.selectbox(f"Status ({ex_name})", ["pending", "completed"], index=0 if ex_row['status'] == "pending" else 1, key=f"status_{ex_name}")
             
-            ex_notes = st.text_area(f"Notes ({ex_name})", value=ex_row['notes'] or "", height=50)
+            ex_notes = st.text_area(f"Notes ({ex_name})", value=ex_row['notes'] or "", height=50, key=f"notes_{ex_name}")
             
             exercise_data[ex_name] = {
                 'done_sets': done_sets,
@@ -167,7 +167,7 @@ elif page == "Log Day":
                 'status': status
             }
         
-        if st.button("Save All Exercises"):
+        if st.button("Save"):
             all_completed = True
             for ex_name, data in exercise_data.items():
                 c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?, status=?
