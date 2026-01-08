@@ -11,15 +11,14 @@ c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS workout_days
              (date TEXT PRIMARY KEY, status TEXT, notes TEXT)''')
 c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
-             (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, 
-              planned_sets TEXT, planned_reps TEXT, planned_weight TEXT,
-              done_sets TEXT, done_reps TEXT, done_weight TEXT, status TEXT)''')  # Removed notes from exercises
-# Migrate: Remove notes column if exists (but for simplicity, assume it's updated manually if needed)
+             (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, set_number INTEGER, 
+              planned_reps TEXT, planned_weight TEXT,
+              done_reps TEXT, done_weight TEXT, status TEXT)''')  # Per set, no notes per
 conn.commit()
 
 # App layout
 st.title("Calendar-Based Workout Tracker")
-st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-exercise with individual status.")
+st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-set in a single table.")
 
 # Sidebar
 page = st.sidebar.selectbox("Section", ["Load Routine", "Monthly Calendar", "Export"])
@@ -43,7 +42,7 @@ if page == "Load Routine":
     if st.button("Load JSON"):
         try:
             st.session_state.routine = json.loads(json_input)
-            st.success("Routine loaded! Go to Monthly Calendar or Log Day.")
+            st.success("Routine loaded! Go to Monthly Calendar.")
         except json.JSONDecodeError:
             st.error("Invalid JSON format.")
 
@@ -75,12 +74,12 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                         c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes) VALUES (?, ?, ?)",
                                   (date_str, "pending", phase.get('notes', '')))
                         
-                        # Exercises with initial status
+                        # Insert per-set rows
                         exercises = phase.get('exercises', {}).get(workout_type, [])
-                        
                         for ex in exercises:
-                            c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, planned_sets, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
-                                      (date_str, ex['name'], str(ex['sets']), ex['reps'], str(ex.get('start_weight', '0')), "pending"))
+                            for set_num in range(1, int(ex['sets']) + 1 if isinstance(ex['sets'], int) else 1):  # Handle "4-5" as 4 for initial
+                                c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                          (date_str, ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
                         conn.commit()
                 current += timedelta(days=1)
                 total_days += 1
@@ -137,25 +136,26 @@ elif page == "Monthly Calendar" and st.session_state.routine:
         row = c.fetchone()
         current_notes = row[0] if row else ""
         
-        # Fetch exercises
-        df_ex = pd.read_sql_query("SELECT exercise_name, planned_sets, planned_reps, planned_weight, done_sets, done_reps, done_weight, status FROM exercise_logs WHERE date=?", conn, params=(date_str,))
+        # Fetch set rows
+        df_sets = pd.read_sql_query("SELECT exercise_name, set_number, planned_reps, planned_weight, done_reps, done_weight, status FROM exercise_logs WHERE date=?", conn, params=(date_str,))
+        df_sets = df_sets.sort_values(['exercise_name', 'set_number'])
         
-        if not df_ex.empty:
+        if not df_sets.empty:
             if st.session_state.get('edit_mode', False):
                 # Edit mode: Editable table
                 notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected_edit")
                 edited_df = st.data_editor(
-                    df_ex,
+                    df_sets,
                     column_config={
-                        "exercise_name": "Exercise",
-                        "planned_sets": st.column_config.TextColumn("Planned Sets", disabled=True),
+                        "exercise_name": st.column_config.TextColumn("Exercise", disabled=True),
+                        "set_number": st.column_config.NumberColumn("Set", disabled=True),
                         "planned_reps": st.column_config.TextColumn("Planned Reps", disabled=True),
                         "planned_weight": st.column_config.TextColumn("Planned Weight", disabled=True),
-                        "done_sets": "Done Sets",
                         "done_reps": "Done Reps",
                         "done_weight": "Done Weight",
                         "status": st.column_config.SelectboxColumn("Status", options=["pending", "completed"]),
                     },
+                    num_rows="dynamic",
                     hide_index=True,
                     use_container_width=True
                 )
@@ -163,9 +163,9 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                 if st.button("Save Changes"):
                     all_completed = all(s == "completed" for s in edited_df['status'])
                     for idx, row in edited_df.iterrows():
-                        c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, status=?
-                                     WHERE date=? AND exercise_name=?""",
-                                  (row['done_sets'], row['done_reps'], row['done_weight'], row['status'], date_str, row['exercise_name']))
+                        c.execute("""UPDATE exercise_logs SET done_reps=?, done_weight=?, status=?
+                                     WHERE date=? AND exercise_name=? AND set_number=?""",
+                                  (row['done_reps'], row['done_weight'], row['status'], date_str, row['exercise_name'], row['set_number']))
                     conn.commit()
                     
                     day_status = "completed" if all_completed else "pending"
@@ -177,13 +177,12 @@ elif page == "Monthly Calendar" and st.session_state.routine:
             else:
                 # View mode: Read-only table
                 st.dataframe(
-                    df_ex,
+                    df_sets,
                     column_config={
                         "exercise_name": "Exercise",
-                        "planned_sets": "Planned Sets",
+                        "set_number": "Set",
                         "planned_reps": "Planned Reps",
                         "planned_weight": "Planned Weight",
-                        "done_sets": "Done Sets",
                         "done_reps": "Done Reps",
                         "done_weight": "Done Weight",
                         "status": "Status",
