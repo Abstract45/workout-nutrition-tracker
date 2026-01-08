@@ -147,7 +147,7 @@ elif page == "Calendar":
             st.info("No scheduled days. Run Generate Schedule after loading routine.")
 
         # Details for selected day
-        if st.session_state.selected_date:
+        if st.session_state.get('selected_date'):
             date_str = st.session_state.selected_date
             st.subheader(f"Workout for {date_str}")
 
@@ -163,7 +163,7 @@ elif page == "Calendar":
                     if st.button(ex, key=f"gif_{ex}_{date_str}", use_container_width=True):
                         st.image(exercise_gifs.get(ex, ""), use_column_width=True)
 
-                if st.session_state.edit_mode:
+                if st.session_state.get('edit_mode', False):
                     notes = st.text_area("Day Notes", current_notes)
                     edited = st.data_editor(df_sets, use_container_width=True, height=400)
                     if st.button("Save", use_container_width=True):
