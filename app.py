@@ -13,7 +13,13 @@ c.execute('''CREATE TABLE IF NOT EXISTS workout_days
 c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, 
               planned_sets TEXT, planned_reps TEXT, planned_weight TEXT,
-              done_sets TEXT, done_reps TEXT, done_weight TEXT, notes TEXT, status TEXT)''')  # Added status for per-exercise
+              done_sets TEXT, done_reps TEXT, done_weight TEXT, notes TEXT, status TEXT)''')
+# Migrate: Add status column if missing
+try:
+    c.execute("ALTER TABLE exercise_logs ADD COLUMN status TEXT")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass  # Column already exists
 conn.commit()
 
 # App layout
