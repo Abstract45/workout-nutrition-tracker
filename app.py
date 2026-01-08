@@ -75,6 +75,7 @@ st.markdown("""
     .stDataFrame {
         width: 100% !important;
         font-size: 12px;  /* Smaller text for tables */
+        overflow-x: auto;  /* Horizontal scroll if needed */
     }
     .stTextInput > div > div > div > input {
         width: 100%;
@@ -89,6 +90,7 @@ st.markdown("""
         .stButton > button {
             padding: 0.2rem 0.4rem;
             font-size: 12px;
+            margin: 0;
         }
         .stHeader {
             font-size: 18px;
@@ -102,11 +104,23 @@ st.markdown("""
         .stImage {
             max-width: 100%;
         }
-        /* Sidebar always visible but collapsible if needed */
+        /* Sidebar adjustments */
         section[data-testid="stSidebar"] {
-            display: block !important;
-            width: 80vw !important;
-            max-width: 300px;
+            width: 100% !important;
+            max-width: none !important;
+            padding: 0.5rem !important;
+        }
+        .stSidebar .stSelectbox {
+            width: 100%;
+        }
+        /* Calendar rows closer together */
+        .row-widget {
+            margin-bottom: 0.5rem;
+        }
+        /* Table scroll */
+        [data-testid="stDataFrame"] {
+            overflow-x: auto;
+            white-space: nowrap;
         }
     }
 </style>
