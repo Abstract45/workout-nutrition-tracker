@@ -64,13 +64,17 @@ st.markdown("""
         overflow-x: hidden;
     }
     [data-testid="column"] {
-        width: calc(50% - 1rem) !important;
-        flex: 1 1 calc(50% - 1rem) !important;
-        min-width: calc(50% - 1rem) !important;
+        width: calc(14.28% - 1px) !important;
+        min-width: calc(14.28% - 1px) !important;
+        padding: 0 !important;
+        margin: 0 !important;
     }
     .stButton > button {
         width: 100%;
-        font-size: 14px;  /* Smaller buttons on mobile */
+        font-size: 12px;  /* Smaller buttons on mobile */
+        padding: 2px !important;
+        margin: 0 !important;
+        height: 30px !important;
     }
     .stDataFrame {
         width: 100% !important;
@@ -88,9 +92,10 @@ st.markdown("""
     /* Calendar buttons smaller on mobile */
     @media (max-width: 640px) {
         .stButton > button {
-            padding: 0.2rem 0.4rem;
-            font-size: 12px;
+            padding: 0.1rem !important;
+            font-size: 10px;
             margin: 0;
+            height: 25px !important;
         }
         .stHeader {
             font-size: 18px;
@@ -106,16 +111,7 @@ st.markdown("""
         }
         /* Sidebar adjustments */
         section[data-testid="stSidebar"] {
-            width: 100% !important;
-            max-width: none !important;
-            padding: 0.5rem !important;
-        }
-        .stSidebar .stSelectbox {
-            width: 100%;
-        }
-        /* Calendar rows closer together */
-        .row-widget {
-            margin-bottom: 0.5rem;
+            display: none !important;  /* Hide sidebar on mobile */
         }
         /* Table scroll */
         [data-testid="stDataFrame"] {
@@ -130,8 +126,13 @@ st.markdown("""
 st.title("Calendar-Based Workout Tracker")
 st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-set in a single table.")
 
-# Sidebar
-page = st.sidebar.selectbox("Section", ["Load Routine", "Monthly Calendar", "Export"])
+# Replace sidebar with top dropdown
+if 'page' not in st.session_state:
+    st.session_state.page = "Monthly Calendar"
+
+st.session_state.page = st.selectbox("Select Section", ["Load Routine", "Monthly Calendar", "Export"], index=["Load Routine", "Monthly Calendar", "Export"].index(st.session_state.page))
+
+page = st.session_state.page
 
 # Global routine var
 if 'routine' not in st.session_state:
