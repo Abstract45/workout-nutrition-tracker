@@ -13,13 +13,8 @@ c.execute('''CREATE TABLE IF NOT EXISTS workout_days
 c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, 
               planned_sets TEXT, planned_reps TEXT, planned_weight TEXT,
-              done_sets TEXT, done_reps TEXT, done_weight TEXT, notes TEXT, status TEXT)''')
-# Migrate: Add status column if missing
-try:
-    c.execute("ALTER TABLE exercise_logs ADD COLUMN status TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass  # Column already exists
+              done_sets TEXT, done_reps TEXT, done_weight TEXT, status TEXT)''')  # Removed notes from exercises
+# Migrate: Remove notes column if exists (but for simplicity, assume it's updated manually if needed)
 conn.commit()
 
 # App layout
@@ -143,45 +138,34 @@ elif page == "Monthly Calendar" and st.session_state.routine:
         current_notes = row[0] if row else ""
         
         # Fetch exercises
-        df_ex = pd.read_sql_query("SELECT * FROM exercise_logs WHERE date=?", conn, params=(date_str,))
+        df_ex = pd.read_sql_query("SELECT exercise_name, planned_sets, planned_reps, planned_weight, done_sets, done_reps, done_weight, status FROM exercise_logs WHERE date=?", conn, params=(date_str,))
         
         if not df_ex.empty:
             if st.session_state.get('edit_mode', False):
-                # Edit mode
-                notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected")
-                exercise_data = {}
-                for _, ex_row in df_ex.iterrows():
-                    ex_name = ex_row['exercise_name']
-                    st.markdown(f"**{ex_name}** - Recommended: {ex_row['planned_sets']} sets of {ex_row['planned_reps']} reps at {ex_row['planned_weight']} lbs")
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        done_sets = st.text_input(f"Sets ({ex_name})", value=ex_row['done_sets'] or ex_row['planned_sets'], key=f"done_sets_{ex_name}_{date_str}")
-                    with col2:
-                        done_reps = st.text_input(f"Reps ({ex_name})", value=ex_row['done_reps'] or ex_row['planned_reps'], key=f"done_reps_{ex_name}_{date_str}")
-                    with col3:
-                        done_weight = st.text_input(f"Weight ({ex_name})", value=ex_row['done_weight'] or ex_row['planned_weight'], key=f"done_weight_{ex_name}_{date_str}")
-                    with col4:
-                        status = st.selectbox(f"Status ({ex_name})", ["pending", "completed"], index=0 if ex_row['status'] == "pending" else 1, key=f"status_{ex_name}_{date_str}")
-                    
-                    ex_notes = st.text_area(f"Notes ({ex_name})", value=ex_row['notes'] or "", height=50, key=f"notes_{ex_name}_{date_str}")
-                    
-                    exercise_data[ex_name] = {
-                        'done_sets': done_sets,
-                        'done_reps': done_reps,
-                        'done_weight': done_weight,
-                        'notes': ex_notes,
-                        'status': status
-                    }
+                # Edit mode: Editable table
+                notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected_edit")
+                edited_df = st.data_editor(
+                    df_ex,
+                    column_config={
+                        "exercise_name": "Exercise",
+                        "planned_sets": st.column_config.TextColumn("Planned Sets", disabled=True),
+                        "planned_reps": st.column_config.TextColumn("Planned Reps", disabled=True),
+                        "planned_weight": st.column_config.TextColumn("Planned Weight", disabled=True),
+                        "done_sets": "Done Sets",
+                        "done_reps": "Done Reps",
+                        "done_weight": "Done Weight",
+                        "status": st.column_config.SelectboxColumn("Status", options=["pending", "completed"]),
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
                 
                 if st.button("Save Changes"):
-                    all_completed = True
-                    for ex_name, data in exercise_data.items():
-                        c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?, status=?
+                    all_completed = all(s == "completed" for s in edited_df['status'])
+                    for idx, row in edited_df.iterrows():
+                        c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, status=?
                                      WHERE date=? AND exercise_name=?""",
-                                  (data['done_sets'], data['done_reps'], data['done_weight'], data['notes'], data['status'], date_str, ex_name))
-                        if data['status'] != "completed":
-                            all_completed = False
+                                  (row['done_sets'], row['done_reps'], row['done_weight'], row['status'], date_str, row['exercise_name']))
                     conn.commit()
                     
                     day_status = "completed" if all_completed else "pending"
@@ -191,18 +175,23 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                     st.success("Saved! Now in view mode.")
                     st.rerun()
             else:
-                # View mode
+                # View mode: Read-only table
+                st.dataframe(
+                    df_ex,
+                    column_config={
+                        "exercise_name": "Exercise",
+                        "planned_sets": "Planned Sets",
+                        "planned_reps": "Planned Reps",
+                        "planned_weight": "Planned Weight",
+                        "done_sets": "Done Sets",
+                        "done_reps": "Done Reps",
+                        "done_weight": "Done Weight",
+                        "status": "Status",
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
                 st.text_area("Day Notes", value=current_notes, disabled=True)
-                for _, ex_row in df_ex.iterrows():
-                    ex_name = ex_row['exercise_name']
-                    done_sets = ex_row['done_sets'] or "Not logged"
-                    done_reps = ex_row['done_reps'] or "Not logged"
-                    done_weight = ex_row['done_weight'] or "Not logged"
-                    ex_notes = ex_row['notes'] or "No notes"
-                    status = ex_row['status']
-                    st.markdown(f"**{ex_name}** - Recommended: {ex_row['planned_sets']} sets of {ex_row['planned_reps']} reps at {ex_row['planned_weight']} lbs")
-                    st.markdown(f"Logged: {done_sets} sets of {done_reps} reps at {done_weight} lbs | Status: {status}")
-                    st.markdown(f"Notes: {ex_notes}")
                 
                 if st.button("Edit This Day"):
                     st.session_state.edit_mode = True
