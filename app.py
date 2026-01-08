@@ -77,6 +77,13 @@ if 'selected_date' not in st.session_state:
 if 'edit_mode' not in st.session_state:
     st.session_state.edit_mode = False
 
+# Load saved routine if not in session
+try:
+    with open('routine.json', 'r') as f:
+        st.session_state.routine = json.loads(f.read())
+except FileNotFoundError:
+    pass
+
 # Top navigation dropdown (mobile-friendly)
 page = st.selectbox("Navigate", ["Load Routine", "Calendar", "Export"])
 
@@ -89,7 +96,9 @@ if page == "Load Routine":
     if st.button("Load JSON"):
         try:
             st.session_state.routine = json.loads(json_input)
-            st.success("Loaded!")
+            with open('routine.json', 'w') as f:
+                json.dump(st.session_state.routine, f)  # Save to file for persistence
+            st.success("Loaded and saved!")
         except:
             st.error("Invalid JSON")
 
@@ -105,7 +114,7 @@ elif page == "Calendar":
                 current = today
                 for phase in st.session_state.routine['phases']:
                     # Simplified - adjust to your phase logic
-                    duration_days = 90  # Approx 3 months
+                    duration_days = 90  # Approx 3 months for phase
                     phase_end = current + timedelta(days=duration_days)
                     while current < phase_end:
                         weekday = current.weekday()
