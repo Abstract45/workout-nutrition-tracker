@@ -4,11 +4,15 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 
-# Database setup for checkmarks
+# Database setup
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS workout_days
-             (date TEXT PRIMARY KEY, status TEXT, notes TEXT, workout_details TEXT)''')  # workout_details as JSON string
+             (date TEXT PRIMARY KEY, status TEXT, notes TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
+             (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, 
+              planned_sets TEXT, planned_reps TEXT, planned_weight TEXT,
+              done_sets TEXT, done_reps TEXT, done_weight TEXT, notes TEXT)''')
 conn.commit()
 
 # App layout
@@ -57,7 +61,6 @@ elif page == "Calendar View" and st.session_state.routine:
             phase_end = min(phase_start + timedelta(days=30 * duration_months), absolute_end)  # Approx, cap total
             
             current = phase_start
-            phase_days = (phase_end - phase_start).days
             while current < phase_end:
                 weekday = get_weekday_name(current.weekday())
                 if any(weekday in s for s in phase['schedule']):
@@ -65,11 +68,20 @@ elif page == "Calendar View" and st.session_state.routine:
                     if sched_entry:
                         workout_type = sched_entry.split(' (')[-1].rstrip(')') if '(' in sched_entry else "Full Body"
                         date_str = current.strftime("%Y-%m-%d")
-                        exercises_json = json.dumps(phase.get('exercises', {}))  # Store as string
                         
-                        # Insert if not exists
-                        c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes, workout_details) VALUES (?, ?, ?, ?)",
-                                  (date_str, "pending", phase.get('notes', ''), exercises_json))
+                        # Insert day if not exists
+                        c.execute("INSERT OR IGNORE INTO workout_days (date, status, notes) VALUES (?, ?, ?)",
+                                  (date_str, "pending", phase.get('notes', '')))
+                        
+                        # Get exercises for this type
+                        exercises = phase.get('exercises', [])
+                        if isinstance(exercises, dict):
+                            exercises = exercises.get(workout_type, [])
+                        
+                        # Insert individual exercises
+                        for ex in exercises:
+                            c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, planned_sets, planned_reps, planned_weight) VALUES (?, ?, ?, ?, ?)",
+                                      (date_str, ex['name'], str(ex['sets']), ex['reps'], str(ex.get('start_weight', '0'))))
                         conn.commit()
                 current += timedelta(days=1)
                 total_days += 1
@@ -78,27 +90,25 @@ elif page == "Calendar View" and st.session_state.routine:
             phase_start = phase_end
         st.success("Schedule generated/updated!")
     
-    # Display editable table (keep workout_details as JSON string)
-    df = pd.read_sql_query("SELECT date, status, notes, workout_details FROM workout_days ORDER BY date", conn)
-    if not df.empty:
+    # Display editable table of days
+    df_days = pd.read_sql_query("SELECT date, status, notes FROM workout_days ORDER BY date", conn)
+    if not df_days.empty:
         edited_df = st.data_editor(
-            df,
+            df_days,
             column_config={
                 "date": "Date",
                 "status": st.column_config.SelectboxColumn(options=["pending", "completed", "rescheduled"]),
                 "notes": "Notes",
-                "workout_details": st.column_config.TextColumn("Workout Details (Edit as JSON string)"),
             },
             use_container_width=True,
-            num_rows="dynamic"  # Allow adding/rescheduling new rows
+            num_rows="dynamic"  # Allow adding new rows
         )
         
         # Save edits back to DB
         if st.button("Save Changes"):
             for idx, row in edited_df.iterrows():
-                workout_details_str = json.dumps(row['workout_details']) if isinstance(row['workout_details'], dict) else row['workout_details']
-                c.execute("REPLACE INTO workout_days VALUES (?, ?, ?, ?)",
-                          (row['date'], row['status'], row['notes'], workout_details_str))
+                c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)",
+                          (row['date'], row['status'], row['notes']))
             conn.commit()
             st.success("Changes saved!")
     else:
@@ -109,26 +119,63 @@ elif page == "Log Day":
     date = st.date_input("Select Date", datetime.today())
     date_str = str(date)
     
-    c.execute("SELECT status, notes, workout_details FROM workout_days WHERE date=?", (date_str,))
+    # Day info
+    c.execute("SELECT status, notes FROM workout_days WHERE date=?", (date_str,))
     row = c.fetchone()
     current_status = row[0] if row else "pending"
     current_notes = row[1] if row else ""
-    current_details = json.loads(row[2]) if row and row[2] else {}
     
     status = st.selectbox("Status", ["pending", "completed", "rescheduled"], index=["pending", "completed", "rescheduled"].index(current_status))
-    notes = st.text_area("Notes", value=current_notes)
-    details_json = st.text_area("Workout Details (JSON)", value=json.dumps(current_details, indent=2))
+    notes = st.text_area("Day Notes", value=current_notes)
+    
+    # Exercises sub-table
+    st.subheader("Exercises for this Day")
+    df_ex = pd.read_sql_query("SELECT exercise_name, planned_sets, planned_reps, planned_weight, done_sets, done_reps, done_weight, notes FROM exercise_logs WHERE date=?", conn, params=(date_str,))
+    if not df_ex.empty:
+        edited_ex = st.data_editor(
+            df_ex,
+            column_config={
+                "exercise_name": "Exercise",
+                "planned_sets": "Planned Sets",
+                "planned_reps": "Planned Reps",
+                "planned_weight": "Planned Weight",
+                "done_sets": "Done Sets",
+                "done_reps": "Done Reps",
+                "done_weight": "Done Weight",
+                "notes": "Exercise Notes",
+            },
+            use_container_width=True,
+            hide_index=False
+        )
+    else:
+        edited_ex = pd.DataFrame()
+        st.info("No exercises scheduled for this day.")
     
     if st.button("Save"):
-        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?, ?)", (date_str, status, notes, details_json))
+        # Save day
+        c.execute("REPLACE INTO workout_days VALUES (?, ?, ?)", (date_str, status, notes))
+        
+        # Save exercises
+        for idx, row in edited_ex.iterrows():
+            c.execute("""UPDATE exercise_logs SET done_sets=?, done_reps=?, done_weight=?, notes=?
+                         WHERE date=? AND exercise_name=?""",
+                      (row['done_sets'], row['done_reps'], row['done_weight'], row['notes'], date_str, row['exercise_name']))
         conn.commit()
-        st.success("Day updated!")
+        st.success("Day and exercises updated!")
 
 elif page == "Export":
     st.header("Export Data")
-    df = pd.read_sql_query("SELECT * FROM workout_days", conn)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download CSV", csv, "workout_days.csv", "text/csv")
+    export_type = st.selectbox("Export What?", ["Workout Days", "Exercise Logs", "Both"])
+    
+    if export_type in ["Workout Days", "Both"]:
+        df_days = pd.read_sql_query("SELECT * FROM workout_days", conn)
+        csv_days = df_days.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Workout Days CSV", csv_days, "workout_days.csv", "text/csv")
+    
+    if export_type in ["Exercise Logs", "Both"]:
+        df_ex = pd.read_sql_query("SELECT * FROM exercise_logs", conn)
+        csv_ex = df_ex.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Exercise Logs CSV", csv_ex, "exercise_logs.csv", "text/csv")
 
 if not st.session_state.routine:
     st.warning("Load routine first in 'Load Routine' section.")
