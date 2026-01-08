@@ -4,7 +4,6 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 import re  # For parsing sets
-from streamlit_calendar import calendar  # Mobile-friendly calendar component
 
 # Database setup
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
@@ -55,39 +54,28 @@ exercise_gifs = {
     "Mix of above": ""
 }
 
-# Mobile-friendly CSS
+# Mobile CSS (no sidebar, full width, scrollable tables)
 st.markdown("""
 <style>
-    .stApp {
-        max-width: 100vw;
-        overflow-x: hidden;
-    }
-    .stDataFrame {
-        font-size: 14px;
-        overflow-x: auto;
-    }
-    .stImage {
-        max-width: 100%;
-    }
+    .stApp {max-width: 100vw; overflow-x: hidden;}
+    section[data-testid="stSidebar"] {display: none !important;}
+    .stDataFrame {overflow-x: auto; font-size: 14px;}
+    .stButton > button {width: 100%; margin-bottom: 0.5rem;}
+    .stTextArea, .stTextInput {width: 100% !important;}
     @media (max-width: 640px) {
-        .stRadio > div {
-            flex-direction: row;
-            flex-wrap: wrap;
-        }
-        .stRadio > div > label {
-            margin: 0.2rem;
-        }
+        .stSelectbox {width: 100% !important;}
+        .stMarkdown {font-size: 14px;}
     }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("Workout Tracker")
 
-# Top navigation (mobile-friendly horizontal radio)
-page = st.radio("Section", ["Load Routine", "Calendar", "Export"], horizontal=True)
+# Top dropdown navigation (mobile-friendly)
+if 'page' not in st.session_state:
+    st.session_state.page = "Calendar"
 
-if 'routine' not in st.session_state:
-    st.session_state.routine = None
+page = st.selectbox("Navigate", ["Load Routine", "Calendar", "Export"], index=["Load Routine", "Calendar", "Export"].index(st.session_state.page))
 
 if page == "Load Routine":
     st.header("Load Routine JSON")
@@ -103,7 +91,7 @@ if page == "Load Routine":
             st.error("Invalid JSON")
 
 elif page == "Calendar" and st.session_state.routine:
-    st.header("Workout Calendar")
+    st.header("Workout Days")
     
     if st.button("Generate/Refresh Schedule"):
         with st.spinner("Generating..."):
@@ -111,71 +99,55 @@ elif page == "Calendar" and st.session_state.routine:
             end = today + timedelta(days=365)
             current = today
             for phase in st.session_state.routine['phases']:
-                # Phase duration logic (simplified)
-                exercises = phase.get('exercises', {}).get("Full Body", [])  # Adjust for splits if needed
+                exercises = phase.get('exercises', {}).get("Full Body", [])  # Simplify for your structure
                 for ex in exercises:
                     sets_str = str(ex['sets'])
                     nums = re.findall(r'\d+', sets_str)
                     num_sets = max(map(int, nums)) if nums else 1
                     for set_num in range(1, num_sets + 1):
-                        # Insert logic (simplified - adjust for your phases)
+                        # Insert logic (simplified)
                         c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
                                   ("2026-01-08", ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
                 conn.commit()
         st.success("Generated!")
 
-    # Fetch dates for calendar
-    df_days = pd.read_sql_query("SELECT date, status FROM workout_days", conn)
-    events = []
-    for _, row in df_days.iterrows():
-        color = "#28a745" if row['status'] == "completed" else "#dc3545"
-        events.append({
-            "title": "",
-            "start": row['date'],
-            "backgroundColor": color,
-            "borderColor": color,
-            "extendedProps": {"date": row['date']}
-        })
+    # Vertical list of workout days (mobile-friendly, no chopping)
+    df_days = pd.read_sql_query("SELECT date, status FROM workout_days ORDER BY date DESC", conn)
+    if not df_days.empty:
+        for _, row in df_days.iterrows():
+            date_str = row['date']
+            mark = "✅ Completed" if row['status'] == "completed" else "- Pending"
+            if st.button(f"{date_str} {mark}", key=f"day_btn_{date_str}", use_container_width=True):
+                st.session_state.selected_date = date_str
+                st.session_state.edit_mode = False
+                st.rerun()
+    else:
+        st.info("No scheduled days yet. Run Generate Schedule.")
 
-    cal_options = {
-        "initialView": "dayGridMonth",
-        "headerToolbar": {"left": "prev,next today", "center": "title", "right": ""},
-        "height": "auto"
-    }
+    # Details for selected day
+    if 'selected_date' in st.session_state:
+        date_str = st.session_state.selected_date
+        st.subheader(f"Workout for {date_str}")
 
-    cal = calendar(events=events, options=cal_options, key="main_cal")
-
-    if cal and "dateClick" in cal:
-        date_str = cal["dateClick"]["date"][:10]  # YYYY-MM-DD
-        st.subheader(f"Details for {date_str}")
-
-        # Day notes
+        # Notes
         c.execute("SELECT notes FROM workout_days WHERE date=?", (date_str,))
         notes_row = c.fetchone()
         current_notes = notes_row[0] if notes_row else ""
 
-        # Exercises table
-        df_sets = pd.read_sql_query("SELECT exercise_name, set_number, planned_reps, planned_weight, done_reps, done_weight, status FROM exercise_logs WHERE date=?", conn, params=(date_str,))
-        df_sets = df_sets.sort_values(['exercise_name', 'set_number'])
-
+        # Sets table
+        df_sets = pd.read_sql_query("SELECT exercise_name, set_number, planned_reps, planned_weight, done_reps, done_weight, status FROM exercise_logs WHERE date=? ORDER BY exercise_name, set_number", conn, params=(date_str,))
+        
         if not df_sets.empty:
+            # GIF buttons
             unique_ex = df_sets['exercise_name'].unique()
             for ex in unique_ex:
-                if st.button(ex, key=f"gif_{ex}_{date_str}"):
-                    gif = exercise_gifs.get(ex, "")
-                    if gif:
-                        st.image(gif, use_column_width=True)
-                    else:
-                        st.info("No GIF")
-
-            if st.button("Edit This Day"):
-                st.session_state.edit_mode = True
-                st.rerun()
+                if st.button(ex, key=f"gif_{ex}_{date_str}", use_container_width=True):
+                    st.image(exercise_gifs.get(ex, ""), use_column_width=True)
 
             if st.session_state.get('edit_mode', False):
                 notes = st.text_area("Day Notes", current_notes)
                 edited = st.data_editor(df_sets, use_container_width=True, height=400)
-                if st.button("Save"):
+                if st.button("Save", use_container_width=True):
                     all_done = all(s == "completed" for s in edited['status'])
                     for _, r in edited.iterrows():
                         c.execute("""UPDATE exercise_logs SET done_reps=?, done_weight=?, status=? WHERE date=? AND exercise_name=? AND set_number=?""",
@@ -188,11 +160,23 @@ elif page == "Calendar" and st.session_state.routine:
             else:
                 st.dataframe(df_sets, use_container_width=True, height=400)
                 st.text_area("Day Notes", current_notes, disabled=True)
+                if st.button("Edit This Day", use_container_width=True):
+                    st.session_state.edit_mode = True
+                    st.rerun()
         else:
             st.info("No exercises")
 
 elif page == "Export":
-    # Export code same as before
+    st.header("Export Data")
+    export_type = st.selectbox("Export What?", ["Workout Days", "Exercise Logs", "Both"])
+    if export_type in ["Workout Days", "Both"]:
+        df_days = pd.read_sql_query("SELECT * FROM workout_days", conn)
+        csv = df_days.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Workout Days", csv, "workout_days.csv", "text/csv")
+    if export_type in ["Exercise Logs", "Both"]:
+        df_ex = pd.read_sql_query("SELECT * FROM exercise_logs", conn)
+        csv = df_ex.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Exercise Logs", csv, "exercise_logs.csv", "text/csv")
 
-if not st.session_state.routine:
+if not st.session_state.get('routine'):
     st.warning("Load routine first")
