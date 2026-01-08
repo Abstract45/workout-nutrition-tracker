@@ -4,7 +4,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 import calendar
-import re  # Added for parsing sets
+import re  # For parsing sets
 
 # Database setup
 conn = sqlite3.connect('tracker.db', check_same_thread=False)
@@ -22,6 +22,21 @@ try:
 except sqlite3.OperationalError:
     pass
 conn.commit()
+
+# GIF URLs for exercises (hardcoded from searches)
+exercise_gifs = {
+    "Bench Press": "https://cdn.jefit.com/assets/img/exercises/gifs/26.gif",
+    "Overhead Press": "https://barbend.com/wp-content/uploads/2022/05/barbell-overhead-press-barbend-movement-gif-masters.gif",
+    "T-Bar Rows": "https://i.makeagif.com/media/3-31-2024/E3iaRM.gif",
+    "Pull-Ups": "http://i.imgur.com/5HP8Cum.gif",
+    "T-Bar Deadlifts": "https://legionathletics.com/wp-content/uploads/2024/12/Trap-Bar-Deadlift-gif.gif",
+    "Barbell Lunges": "https://www.nerdfitness.com/wp-content/uploads/2020/08/barbell-lunge.gif",
+    "Standing Calf Raises": "https://spotebi.com/wp-content/uploads/2015/05/calf-raises-exercise-illustration.gif",
+    "Rower Intervals": "https://www.nerdfitness.com/wp-content/uploads/2021/11/row-machine-lean-and-arms.gif",
+    "Barbell Curls (optional)": "https://barbend.com/wp-content/uploads/2024/01/barbell-curl-barbend-movement-gif-masters.gif",
+    "Treadmill Hills": "https://barbend.com/wp-content/uploads/2024/02/treadmill-run-sprint-barbend-movement-gif-masters.gif",
+    "Mix of above": ""  # No specific GIF
+}
 
 # App layout
 st.title("Calendar-Based Workout Tracker")
