@@ -13,7 +13,13 @@ c.execute('''CREATE TABLE IF NOT EXISTS workout_days
 c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, set_number INTEGER, 
               planned_reps TEXT, planned_weight TEXT,
-              done_reps TEXT, done_weight TEXT, status TEXT)''')  # Per set, no notes per
+              done_reps TEXT, done_weight TEXT, status TEXT)''')
+# Migrate: Add set_number if missing
+try:
+    c.execute("ALTER TABLE exercise_logs ADD COLUMN set_number INTEGER")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass
 conn.commit()
 
 # App layout
@@ -77,7 +83,10 @@ elif page == "Monthly Calendar" and st.session_state.routine:
                         # Insert per-set rows
                         exercises = phase.get('exercises', {}).get(workout_type, [])
                         for ex in exercises:
-                            for set_num in range(1, int(ex['sets']) + 1 if isinstance(ex['sets'], int) else 1):  # Handle "4-5" as 4 for initial
+                            # Parse num_sets: take first number if range like "4-5"
+                            sets_str = str(ex['sets'])
+                            num_sets = int(sets_str.split('-')[0]) if '-' in sets_str else int(sets_str)
+                            for set_num in range(1, num_sets + 1):
                                 c.execute("INSERT OR IGNORE INTO exercise_logs (date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?)",
                                           (date_str, ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
                         conn.commit()
