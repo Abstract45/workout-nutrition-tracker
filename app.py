@@ -55,7 +55,7 @@ exercise_gifs = {
     "Mix of above": ""  # No specific GIF
 }
 
-# Add custom CSS for mobile friendliness
+# Add custom CSS for mobile friendliness (updated to keep sidebar visible with toggle)
 st.markdown("""
 <style>
     /* General mobile optimizations */
@@ -80,13 +80,28 @@ st.markdown("""
     .stSelectbox > div > div > div > div {
         width: 100%;
     }
-    /* Hide sidebar on mobile */
+    /* Make sidebar toggleable on mobile */
     @media (max-width: 640px) {
         section[data-testid="stSidebar"] {
-            display: none !important;
+            display: block !important;  /* Keep visible */
+            position: fixed;
+            top: 0;
+            left: -250px;  /* Hidden off-screen by default */
+            width: 250px;
+            height: 100vh;
+            transition: left 0.3s ease-in-out;
+            z-index: 1000;
+            background-color: var(--background-color);
         }
-        .stSidebar {
-            display: none !important;
+        .stSidebar[aria-expanded="true"] {
+            left: 0;  /* Slide in when expanded */
+        }
+        /* Add a toggle button for sidebar */
+        .sidebar-toggle {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 1001;
         }
     }
 </style>
@@ -95,6 +110,11 @@ st.markdown("""
 # App layout
 st.title("Calendar-Based Workout Tracker")
 st.markdown("Load your routine JSON, view monthly calendar with status marks, and log days. Logging is now per-set in a single table.")
+
+# Sidebar toggle for mobile
+if st.button("☰ Menu", key="sidebar_toggle"):
+    st.session_state.sidebar_expanded = not st.session_state.get('sidebar_expanded', False)
+    st.rerun()
 
 # Sidebar
 page = st.sidebar.selectbox("Section", ["Load Routine", "Monthly Calendar", "Export"])
