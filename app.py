@@ -271,7 +271,7 @@ elif page == "Monthly Calendar" and st.session_state.routine:
             
             if st.session_state.get('edit_mode', False):
                 # Edit mode: Editable table
-                notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected")
+                notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected_edit")
                 edited_df = st.data_editor(
                     df_sets,
                     column_config={
