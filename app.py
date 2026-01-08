@@ -15,12 +15,8 @@ c.execute('''CREATE TABLE IF NOT EXISTS exercise_logs
              (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, exercise_name TEXT, set_number INTEGER, 
               planned_reps TEXT, planned_weight TEXT,
               done_reps TEXT, done_weight TEXT, status TEXT)''')
-# Migrate: Add set_number if missing
-try:
-    c.execute("ALTER TABLE exercise_logs ADD COLUMN set_number INTEGER")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
+# Add unique constraint to avoid duplicates
+c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS uniq_set ON exercise_logs (date, exercise_name, set_number)''')
 conn.commit()
 
 # GIF URLs for exercises (hardcoded from searches)
@@ -170,6 +166,15 @@ elif page == "Monthly Calendar" and st.session_state.routine:
         df_sets = df_sets.sort_values(['exercise_name', 'set_number'])
         
         if not df_sets.empty:
+            unique_exercises = df_sets['exercise_name'].unique()
+            for ex_name in unique_exercises:
+                if st.button(ex_name, key=f"gif_btn_{ex_name}_{date_str}"):
+                    gif_url = exercise_gifs.get(ex_name, "")
+                    if gif_url:
+                        st.image(gif_url, caption=f"How to do {ex_name}", use_column_width=True)
+                    else:
+                        st.info("No GIF available for this exercise.")
+            
             if st.session_state.get('edit_mode', False):
                 # Edit mode: Editable table
                 notes = st.text_area("Day Notes", value=current_notes, key="day_notes_selected_edit")
