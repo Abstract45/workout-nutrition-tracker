@@ -56,134 +56,134 @@ st.markdown("""
 
 st.title("Workout Tracker")
 
-# User login (simple text input for user_id)
-if 'user_id' not in st.session_state:
-    st.session_state.user_id = st.text_input("Enter your username (for personal data storage):", key="user_login")
-    if st.session_state.user_id:
-        st.rerun()
+# Google OAuth login
+def login_screen():
+    st.header("Private App")
+    st.subheader("Log in with Google")
+    if st.button("Log in with Google", on_click=st.login):
+        pass
+
+if not st.user.is_logged_in:
+    login_screen()
 else:
-    st.write(f"Logged in as: {st.session_state.user_id}")
+    user_id = st.user.email  # Use email as user_id for uniqueness
+    st.write(f"Logged in as: {st.user.name}")
     if st.button("Logout"):
-        del st.session_state.user_id
+        st.logout()
         st.rerun()
 
-if 'user_id' not in st.session_state:
-    st.stop()
-
-user_id = st.session_state.user_id
-
-# Load routine from DB if not in session
-if 'routine' not in st.session_state:
-    c.execute("SELECT routine_json FROM user_routines WHERE user_id=?", (user_id,))
-    row = c.fetchone()
-    if row and row[0]:
-        st.session_state.routine = json.loads(row[0])
-    else:
-        st.session_state.routine = None
-
-# Top navigation dropdown (mobile-friendly)
-page = st.selectbox("Navigate", ["Load Routine", "Calendar", "Export"])
-
-if page == "Load Routine":
-    st.header("Load Routine JSON")
-    json_input = st.text_area("Paste JSON here", height=300)
-    uploaded = st.file_uploader("Or upload JSON", type="json")
-    if uploaded:
-        json_input = uploaded.read().decode("utf-8")
-    if st.button("Load JSON"):
-        try:
-            st.session_state.routine = json.loads(json_input)
-            # Save to DB for persistence
-            c.execute("REPLACE INTO user_routines (user_id, routine_json) VALUES (?, ?)", (user_id, json_input))
-            conn.commit()
-            st.success("Loaded and saved for your user!")
-        except:
-            st.error("Invalid JSON")
-
-elif page == "Calendar":
-    if st.session_state.routine is None:
-        st.warning("Load routine first.")
-    else:
-        st.header("Workout Days")
-        
-        if st.button("Generate/Refresh Schedule"):
-            with st.spinner("Generating..."):
-                today = datetime.today()
-                current = today
-                for phase in st.session_state.routine['phases']:
-                    # Simplified generation - adjust for your phase logic
-                    duration_days = 90  # Approx 3 months for phase
-                    phase_end = current + timedelta(days=duration_days)
-                    while current < phase_end:
-                        weekday = current.weekday()
-                        # Match schedule (simplified - use your logic)
-                        date_str = current.strftime("%Y-%m-%d")
-                        c.execute("INSERT OR IGNORE INTO workout_days (user_id, date, status) VALUES (?, ?, ?)", (user_id, date_str, "pending"))
-                        # Add exercises (simplified)
-                        exercises = phase.get('exercises', {}).get("Full Body", [])
-                        for ex in exercises:
-                            sets_str = str(ex['sets'])
-                            nums = re.findall(r'\d+', sets_str)
-                            num_sets = max(map(int, nums)) if nums else 1
-                            for set_num in range(1, num_sets + 1):
-                                c.execute("INSERT OR IGNORE INTO exercise_logs (user_id, date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                          (user_id, date_str, ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
-                        conn.commit()
-                        current += timedelta(days=1)
-            st.success("Generated!")
-            st.rerun()
-
-        # Vertical list of workout days (mobile-friendly, no chopping)
-        df_days = pd.read_sql_query("SELECT date, status FROM workout_days WHERE user_id=? ORDER BY date DESC", conn, params=(user_id,))
-        if not df_days.empty:
-            for _, row in df_days.iterrows():
-                date_str = row['date']
-                mark = "✅ Completed" if row['status'] == "completed" else "- Pending"
-                if st.button(f"{date_str} {mark}", key=f"day_{date_str}", use_container_width=True):
-                    st.session_state.selected_date = date_str
-                    st.session_state.edit_mode = False
-                    st.rerun()
+    # Load routine from DB if not in session
+    if 'routine' not in st.session_state:
+        c.execute("SELECT routine_json FROM user_routines WHERE user_id=?", (user_id,))
+        row = c.fetchone()
+        if row and row[0]:
+            st.session_state.routine = json.loads(row[0])
         else:
-            st.info("No scheduled days. Run Generate Schedule after loading routine.")
+            st.session_state.routine = None
 
-        # Details for selected day
-        if st.session_state.get('selected_date'):
-            date_str = st.session_state.selected_date
-            st.subheader(f"Workout for {date_str}")
+    # Top navigation dropdown (mobile-friendly)
+    page = st.selectbox("Navigate", ["Load Routine", "Calendar", "Export"])
 
-            c.execute("SELECT notes FROM workout_days WHERE user_id=? AND date=?", (user_id, date_str))
-            notes_row = c.fetchone()
-            current_notes = notes_row[0] if notes_row else ""
+    if page == "Load Routine":
+        st.header("Load Routine JSON")
+        json_input = st.text_area("Paste JSON here", height=300)
+        uploaded = st.file_uploader("Or upload JSON", type="json")
+        if uploaded:
+            json_input = uploaded.read().decode("utf-8")
+        if st.button("Load JSON"):
+            try:
+                st.session_state.routine = json.loads(json_input)
+                # Save to DB for persistence
+                c.execute("REPLACE INTO user_routines (user_id, routine_json) VALUES (?, ?)", (user_id, json_input))
+                conn.commit()
+                st.success("Loaded and saved for your user!")
+            except:
+                st.error("Invalid JSON")
 
-            df_sets = pd.read_sql_query("SELECT exercise_name, set_number, planned_reps, planned_weight, done_reps, done_weight, status FROM exercise_logs WHERE user_id=? AND date=? ORDER BY exercise_name, set_number", conn, params=(user_id, date_str))
+    elif page == "Calendar":
+        if st.session_state.routine is None:
+            st.warning("Load routine first.")
+        else:
+            st.header("Workout Days")
+            
+            if st.button("Generate/Refresh Schedule"):
+                with st.spinner("Generating..."):
+                    today = datetime.today()
+                    current = today
+                    for phase in st.session_state.routine['phases']:
+                        # Simplified generation - adjust for your phase logic
+                        duration_days = 90  # Approx 3 months for phase
+                        phase_end = current + timedelta(days=duration_days)
+                        while current < phase_end:
+                            weekday = current.weekday()
+                            # Match schedule (simplified - use your logic)
+                            date_str = current.strftime("%Y-%m-%d")
+                            c.execute("INSERT OR IGNORE INTO workout_days (user_id, date, status) VALUES (?, ?, ?)", (user_id, date_str, "pending"))
+                            # Add exercises (simplified)
+                            exercises = phase.get('exercises', {}).get("Full Body", [])
+                            for ex in exercises:
+                                sets_str = str(ex['sets'])
+                                nums = re.findall(r'\d+', sets_str)
+                                num_sets = max(map(int, nums)) if nums else 1
+                                for set_num in range(1, num_sets + 1):
+                                    c.execute("INSERT OR IGNORE INTO exercise_logs (user_id, date, exercise_name, set_number, planned_reps, planned_weight, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                              (user_id, date_str, ex['name'], set_num, ex['reps'], str(ex.get('start_weight', '0')), "pending"))
+                            conn.commit()
+                            current += timedelta(days=1)
+                st.success("Generated!")
+                st.rerun()
 
-            if not df_sets.empty:
-                # GIF buttons
-                for ex in df_sets['exercise_name'].unique():
-                    if st.button(ex, key=f"gif_{ex}_{date_str}", use_container_width=True):
-                        st.image(exercise_gifs.get(ex, ""), use_column_width=True)
-
-                if st.session_state.get('edit_mode', False):
-                    notes = st.text_area("Day Notes", current_notes)
-                    edited = st.data_editor(df_sets, use_container_width=True, height=400)
-                    if st.button("Save", use_container_width=True):
-                        all_completed = all(s == "completed" for s in edited['status'])
-                        for _, r in edited.iterrows():
-                            c.execute("""UPDATE exercise_logs SET done_reps=?, done_weight=?, status=? WHERE user_id=? AND date=? AND exercise_name=? AND set_number=?""",
-                                      (r['done_reps'], r['done_weight'], r['status'], user_id, date_str, r['exercise_name'], r['set_number']))
-                        c.execute("UPDATE workout_days SET status=?, notes=? WHERE user_id=? AND date=?", ("completed" if all_completed else "pending", notes, user_id, date_str))
-                        conn.commit()
+            # Vertical list of workout days (mobile-friendly, no chopping)
+            df_days = pd.read_sql_query("SELECT date, status FROM workout_days WHERE user_id=? ORDER BY date DESC", conn, params=(user_id,))
+            if not df_days.empty:
+                for _, row in df_days.iterrows():
+                    date_str = row['date']
+                    mark = "✅ Completed" if row['status'] == "completed" else "- Pending"
+                    if st.button(f"{date_str} {mark}", key=f"day_{date_str}", use_container_width=True):
+                        st.session_state.selected_date = date_str
                         st.session_state.edit_mode = False
-                        st.success("Saved!")
-                        st.rerun()
-                else:
-                    st.dataframe(df_sets, use_container_width=True, height=400)
-                    st.text_area("Day Notes", current_notes, disabled=True)
-                    if st.button("Edit This Day", use_container_width=True):
-                        st.session_state.edit_mode = True
                         st.rerun()
             else:
-                st.info("No exercises")
+                st.info("No scheduled days. Run Generate Schedule after loading routine.")
+
+            # Details for selected day
+            if st.session_state.selected_date:
+                date_str = st.session_state.selected_date
+                st.subheader(f"Workout for {date_str}")
+
+                c.execute("SELECT notes FROM workout_days WHERE user_id=? AND date=?", (user_id, date_str))
+                notes_row = c.fetchone()
+                current_notes = notes_row[0] if notes_row else ""
+
+                df_sets = pd.read_sql_query("SELECT exercise_name, set_number, planned_reps, planned_weight, done_reps, done_weight, status FROM exercise_logs WHERE user_id=? AND date=? ORDER BY exercise_name, set_number", conn, params=(user_id, date_str))
+
+                if not df_sets.empty:
+                    # GIF buttons
+                    for ex in df_sets['exercise_name'].unique():
+                        if st.button(ex, key=f"gif_{ex}_{date_str}", use_container_width=True):
+                            st.image(exercise_gifs.get(ex, ""), use_column_width=True)
+
+                    if st.session_state.edit_mode:
+                        notes = st.text_area("Day Notes", current_notes)
+                        edited = st.data_editor(df_sets, use_container_width=True, height=400)
+                        if st.button("Save", use_container_width=True):
+                            all_completed = all(s == "completed" for s in edited['status'])
+                            for _, r in edited.iterrows():
+                                c.execute("""UPDATE exercise_logs SET done_reps=?, done_weight=?, status=? WHERE user_id=? AND date=? AND exercise_name=? AND set_number=?""",
+                                          (r['done_reps'], r['done_weight'], r['status'], user_id, date_str, r['exercise_name'], r['set_number']))
+                            c.execute("UPDATE workout_days SET status=?, notes=? WHERE user_id=? AND date=?", ("completed" if all_completed else "pending", notes, user_id, date_str))
+                            conn.commit()
+                            st.session_state.edit_mode = False
+                            st.success("Saved!")
+                            st.rerun()
+                    else:
+                        st.dataframe(df_sets, use_container_width=True, height=400)
+                        st.text_area("Day Notes", current_notes, disabled=True)
+                        if st.button("Edit This Day", use_container_width=True):
+                            st.session_state.edit_mode = True
+                            st.rerun()
+                else:
+                    st.info("No exercises")
 
 elif page == "Export":
     st.header("Export Data")
